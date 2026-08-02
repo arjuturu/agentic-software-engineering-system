@@ -166,8 +166,9 @@ inside an independent target workspace.
 
 `LLM_MODE=SCRIPTED` is the default and is deterministic, offline, and suitable for all
 tests. `LLM_MODE=OPENAI` uses structured `ChatOpenAI` output and requires both
-`OPENAI_API_KEY` and `OPENAI_MODEL` in the uncommitted `.env`; startup fails safely when
-either is missing. Keys are never placed in graph state or artifacts.
+`OPENAI_API_KEY` in the uncommitted `.env`. The default model is `gpt-5.6-terra`, with explicit
+`OPENAI_REASONING_EFFORT=medium`; both values can be overridden. Startup fails safely when the
+key or model is missing. Keys are never placed in graph state or artifacts.
 
 Application metadata remains in `data/application.db`. Durable LangGraph checkpoints
 use the separate `data/langgraph_checkpoints.db`. The synchronous SQLite connection is
@@ -266,12 +267,14 @@ approval gate—approval is never implicit or automatic.
 ~~~powershell
 $env:LLM_MODE = 'OPENAI'
 $env:OPENAI_API_KEY = '<set-locally>'
-$env:OPENAI_MODEL = '<supported-model>'
+$env:OPENAI_MODEL = 'gpt-5.6-terra'
+$env:OPENAI_REASONING_EFFORT = 'medium'
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_openai_demo.ps1
 ~~~
 
 The OpenAI run may incur provider charges and is intentionally not executed by the automated test
-suite. `OPENAI_MAX_OUTPUT_TOKENS` defaults to `2500` to bound each structured response.
+suite. `OPENAI_MAX_OUTPUT_TOKENS` defaults to `2500` to bound each structured response. Terra's
+reasoning effort is explicit so latency, cost, and behavior do not depend on a provider default.
 
 ### Phase 4 verification
 

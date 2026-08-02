@@ -12,6 +12,7 @@ from app.agents.requirement_agent import RequirementAgent
 from app.agents.validation_agent import ValidationAgent
 from app.core.time import utc_now
 from app.orchestration.approvals import validate_approval_payload, validate_clarification_payload
+from app.orchestration.planning_policy import PlanValidator, normalize_scenario_path_policy
 from app.orchestration.replanning import mark_for_replanning
 from app.orchestration.retries import RetryPolicy
 from app.orchestration.rollback import perform_rollback
@@ -225,25 +226,118 @@ class WorkflowNodes:
         return {}
 
     def planning_agent(self, state: dict) -> dict:
+        scenario_path_policy = normalize_scenario_path_policy(
+            state.get("scenario_profile", {})
+        )
         output = self.planning.run(state)
         version = state.get("plan_version", 0) + 1
-        with self.sessions.begin() as session:
-            WorkflowRepository(session).replace_tasks(state["workflow_id"], output)
         self.audit.record(
-            state["workflow_id"], "PLAN_VERSION_CREATED", "PLANNING", {"version": version}
+            state["workflow_id"],
+            "PLAN_VERSION_CREATED",
+            "PLANNING",
+            {
+                "version": version,
+                "attempt": state.get("retry_counts", {}).get("planning", 0) + 1,
+            },
         )
         return {
             "implementation_plan": output,
+            "scenario_path_policy": scenario_path_policy,
             "plan_version": version,
             "workflow_status": "PLANNING",
             "current_stage": "PLANNING",
+            "last_error": {},
         }
 
     def plan_validation(self, state: dict) -> dict:
         plan = state.get("implementation_plan", {})
-        if plan.get("status") != "PLAN_COMPLETE" or not plan.get("tasks"):
-            return self._policy_error("INCONSISTENT_STATE", "The plan is not executable.")
-        return {}
+        policy = state.get("scenario_path_policy") or normalize_scenario_path_policy(
+            state.get("scenario_profile", {})
+        )
+        result = PlanValidator().validate(
+            plan,
+            policy,
+            approved_requirement=state.get("approved_requirement", {}),
+            architecture_design=state.get("architecture_design", {}),
+        )
+        if not result.valid:
+            retry_count = state.get("retry_counts", {}).get("planning", 0)
+            attempt = retry_count + 1
+            decision = self.retry_policy.decide("planning", retry_count, "PLANNING_FAILURE")
+            retry_allowed = result.fixable and decision.allowed
+            next_retry_count = decision.next_count if retry_allowed else retry_count
+            task_ids = [task.get("task_id") for task in plan.get("tasks", [])]
+            details = {
+                "attempt": attempt,
+                "generated_task_ids": task_ids,
+                "execution_order": list(plan.get("execution_order", [])),
+                "validation_errors": list(result.errors),
+                "correctable": result.fixable,
+            }
+            with self.sessions.begin() as session:
+                repository = WorkflowRepository(session)
+                repository.update_state(
+                    state["workflow_id"],
+                    {
+                        "workflow_status": "RETRYING" if retry_allowed else "FAILED",
+                        "current_stage": "PLANNING",
+                        "state_version": state.get("state_version", 1),
+                    },
+                )
+                audits = AuditRepository(session)
+                audits.add(
+                    state["workflow_id"], "PLAN_VALIDATION_FAILED", "PLANNING", details
+                )
+                if retry_allowed:
+                    audits.add(
+                        state["workflow_id"],
+                        "PLAN_CORRECTION_STARTED",
+                        "PLANNING",
+                        {
+                            "failed_attempt": attempt,
+                            "correction_attempt": next_retry_count + 1,
+                            "validation_errors": list(result.errors),
+                        },
+                    )
+            error = {
+                "code": "PLAN_NOT_EXECUTABLE",
+                "category": "PLANNING_FAILURE",
+                "message": "The implementation plan requires correction.",
+                "retry_allowed": retry_allowed,
+                "details": {
+                    **details,
+                    "retry_exhausted": result.fixable and not retry_allowed,
+                },
+            }
+            return {
+                "planning_validation_errors": list(result.errors),
+                "planning_correction_context": details,
+                "retry_counts": {
+                    **state.get("retry_counts", {}),
+                    "planning": next_retry_count,
+                },
+                "workflow_status": "RETRYING" if retry_allowed else "FAILED",
+                "current_stage": "PLANNING",
+                "last_error": error,
+            }
+
+        retry_count = state.get("retry_counts", {}).get("planning", 0)
+        with self.sessions.begin() as session:
+            WorkflowRepository(session).replace_tasks(state["workflow_id"], plan)
+            if retry_count:
+                AuditRepository(session).add(
+                    state["workflow_id"],
+                    "PLAN_CORRECTION_COMPLETED",
+                    "PLANNING",
+                    {"attempt": retry_count + 1, "retry_count": retry_count},
+                )
+        return {
+            "planning_validation_errors": [],
+            "planning_correction_context": {},
+            "workflow_status": "PLANNING",
+            "current_stage": "PLANNING",
+            "last_error": {},
+        }
 
     def prepare_architecture_approval(self, state: dict) -> dict:
         version = state.get("state_version", 1) + 1
@@ -506,6 +600,7 @@ class WorkflowNodes:
             for task in state.get("implementation_plan", {}).get("tasks", [])
         }
         scenario_allowed = list(state.get("scenario_profile", {}).get("allowed_paths", []))
+        scenario_policy_mode = state.get("scenario_profile", {}).get("path_policy_mode")
         change_plan = state.get("code_change_plan", {}).get("change_plan", [])
         contexts: list[dict[str, object]] = []
         for edit in edits:
@@ -535,7 +630,9 @@ class WorkflowNodes:
                     )
                 task_allowed = list(task.get("allowed_paths", []))
                 effective = policy.resolve_effective_allowed_paths(
-                    task_allowed, scenario_allowed
+                    task_allowed,
+                    scenario_allowed,
+                    policy_mode=scenario_policy_mode,
                 )
                 context: dict[str, object] = {
                     "attempted_path": normalized_path,

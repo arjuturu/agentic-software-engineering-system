@@ -34,11 +34,11 @@ def test_coding_retry_then_pass(
         for item in client.get(f"/api/v1/workflows/{workflow['workflowId']}/audit").json()
     ]
     assert "RETRY_STARTED" in events
-    assert events.count("TASK_VALIDATION_COMPLETED") == 3
+    assert events.count("TASK_VALIDATION_COMPLETED") == 6
     assert events.count("VALIDATION_COMPLETED") == 1
     assert len(retry_payloads) == 1
     payload = retry_payloads[0]
-    assert payload["originating_task"]["task_id"] == "TASK-001"
+    assert payload["originating_task"]["task_id"] == "TASK-002"
     current_main = next(
         item
         for item in payload["retry_repository_context"]
@@ -51,8 +51,8 @@ def test_coding_retry_then_pass(
 
     audit = client.get(f"/api/v1/workflows/{workflow['workflowId']}/audit").json()
     retry = next(item for item in audit if item["eventType"] == "RETRY_STARTED")
-    assert retry["details"]["originating_task_id"] == "TASK-001"
-    assert retry["details"]["retry_task_id"] == "TASK-001-RETRY-1"
+    assert retry["details"]["originating_task_id"] == "TASK-002"
+    assert retry["details"]["retry_task_id"] == "TASK-002-RETRY-1"
     assert retry["details"]["validation_command"] == "PYTEST"
     assert retry["details"]["failure_category"] == "IMPLEMENTATION_DEFECT"
     assert retry["details"]["attempt_number"] == 2

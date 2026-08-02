@@ -32,5 +32,6 @@ def resolve_scenario_profile(scenario_type: str, requirement: str) -> dict:
         "summary": "Generic governed engineering workflow",
         "required_capabilities": [],
         "allowed_paths": [],
+        "path_policy_mode": "TASK_SCOPED",
         "validation_rules": [],
     }

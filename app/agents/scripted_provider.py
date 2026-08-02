@@ -159,45 +159,97 @@ class ScriptedProvider:
         tasks = [
             {
                 "task_id": "TASK-001",
-                "title": "Create package",
-                "description": "Create deterministic sample package files.",
-                "task_type": "IMPLEMENTATION",
+                "title": "Set up project dependencies",
+                "description": "Create deterministic package metadata and tool configuration.",
+                "task_type": "SETUP",
                 "dependencies": [],
                 "parallel_group": None,
                 "risk_level": "LOW",
-                "expected_files": ["pyproject.toml", f"{package_name}/main.py"],
-                "allowed_paths": ["pyproject.toml", package_name, "tests"],
+                "expected_files": ["pyproject.toml"],
+                "allowed_paths": ["pyproject.toml"],
                 "entry_criteria": ["Architecture approved"],
-                "exit_criteria": ["Package imports"],
+                "exit_criteria": ["Project metadata is valid"],
+                "validation_commands": ["RUFF_CHECK"],
+                "acceptance_criteria_covered": ["Ruff completes successfully."],
+            },
+            {
+                "task_id": "TASK-002",
+                "title": "Implement runnable application entry point",
+                "description": "Create the deterministic package and its main application logic.",
+                "task_type": "IMPLEMENTATION",
+                "dependencies": ["TASK-001"],
+                "parallel_group": None,
+                "risk_level": "LOW",
+                "expected_files": [f"{package_name}/__init__.py", f"{package_name}/main.py"],
+                "allowed_paths": (
+                    [package_name, "tests"]
+                    if scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
+                    else [package_name]
+                ),
+                "entry_criteria": ["Dependency setup completed"],
+                "exit_criteria": ["Application entry point imports"],
                 "validation_commands": (
                     ["RUFF_CHECK", "PYTEST"]
                     if scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
                     else ["RUFF_CHECK"]
                 ),
-                "acceptance_criteria_covered": ["Ruff completes successfully."],
+                "acceptance_criteria_covered": ["Application behavior is implemented."],
             },
             {
-                "task_id": "TASK-002",
-                "title": "Create tests",
-                "description": "Verify the deterministic greeting.",
-                "task_type": "TEST",
-                "dependencies": ["TASK-001"],
+                "task_id": "TASK-003",
+                "title": "Wire application integration",
+                "description": "Connect the package entry point to the implemented behavior.",
+                "task_type": "IMPLEMENTATION",
+                "dependencies": ["TASK-002"],
+                "parallel_group": None,
+                "risk_level": "LOW",
+                "expected_files": [],
+                "allowed_paths": [package_name],
+                "entry_criteria": ["Application implementation completed"],
+                "exit_criteria": ["Application wiring is complete"],
+                "validation_commands": ["RUFF_CHECK"],
+                "acceptance_criteria_covered": ["Application components are integrated."],
+            },
+            {
+                "task_id": "TASK-004",
+                "title": "Create acceptance tests",
+                "description": "Verify the deterministic application behavior.",
+                "task_type": "TESTING",
+                "dependencies": ["TASK-003"],
                 "parallel_group": None,
                 "risk_level": "LOW",
                 "expected_files": ["tests/test_main.py"],
                 "allowed_paths": ["tests"],
-                "entry_criteria": ["Package implemented"],
-                "exit_criteria": ["Pytest passes"],
+                "entry_criteria": ["Application wiring completed"],
+                "exit_criteria": ["Acceptance tests pass"],
                 "validation_commands": ["PYTEST"],
                 "acceptance_criteria_covered": ["Pytest completes successfully."],
+            },
+            {
+                "task_id": "TASK-005",
+                "title": "Run final validation",
+                "description": "Run the complete approved quality suite.",
+                "task_type": "VALIDATION",
+                "dependencies": ["TASK-004"],
+                "parallel_group": None,
+                "risk_level": "LOW",
+                "expected_files": [],
+                "allowed_paths": [],
+                "entry_criteria": ["Acceptance tests completed"],
+                "exit_criteria": ["Final validation passes"],
+                "validation_commands": ["RUFF_CHECK", "PYTEST"],
+                "acceptance_criteria_covered": [
+                    "Ruff completes successfully.",
+                    "Pytest completes successfully.",
+                ],
             },
         ]
         return {
             "plan_summary": "Create the package, then verify it with Ruff and Pytest.",
             "tasks": tasks,
-            "execution_order": ["TASK-001", "TASK-002"],
+            "execution_order": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005"],
             "parallel_groups": [],
-            "critical_path": ["TASK-001", "TASK-002"],
+            "critical_path": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005"],
             "high_risk_tasks": [],
             "assumptions": ["Required validation tools are installed by the control plane."],
             "implementation_risks": [],
@@ -325,7 +377,9 @@ class ScriptedProvider:
             expected_files = set(active_task.get("expected_files", []))
             allowed_paths = [str(path).rstrip("/") for path in active_task.get("allowed_paths", [])]
             if (expected_files or allowed_paths) and not (
-                scenario == ScriptedScenario.CODING_RETRY_THEN_PASS and retry_number == 0
+                scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
+                and retry_number == 0
+                and active_task.get("task_id") == "TASK-002"
             ):
                 expected_directories = {
                     str(Path(path).parent).replace("\\", "/")

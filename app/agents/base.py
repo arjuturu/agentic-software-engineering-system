@@ -6,6 +6,7 @@ _ALLOWED_PROMPTS = {
     "requirement-agent.md",
     "design-agent.md",
     "planning-agent.md",
+    "planning-correction-agent.md",
     "repository-analysis-agent.md",
     "coding-agent.md",
     "coding-fix-agent.md",

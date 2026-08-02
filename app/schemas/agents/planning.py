@@ -32,6 +32,14 @@ class PlanTask(BaseModel):
 class PlanningAgentInput(AgentInput):
     approved_requirement: dict[str, Any]
     architecture_design: dict[str, Any]
+    scenario_path_policy: dict[str, Any]
+    pre_satisfied_capabilities: list[str] = Field(default_factory=list)
+    pending_orchestration_gate: str = "ARCHITECTURE_AND_PLAN"
+    post_approval_plan: bool = True
+    generated_task_ids: list[str] = Field(default_factory=list)
+    execution_order: list[str] = Field(default_factory=list)
+    validation_errors: list[dict[str, Any]] = Field(default_factory=list)
+    previous_plan: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanningOutput(BaseModel):

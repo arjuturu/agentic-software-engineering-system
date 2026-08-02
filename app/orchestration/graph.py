@@ -5,6 +5,7 @@ from app.orchestration.routing import (
     route_apply_changes,
     route_architecture_approval,
     route_design_agent,
+    route_plan_validation,
     route_quality,
     route_release_approval,
     route_replan,
@@ -77,7 +78,7 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("planning_agent", "plan_validation")
     builder.add_conditional_edges(
         "plan_validation",
-        lambda state: "safe_stop" if state.get("last_error") else "prepare_architecture_approval",
+        route_plan_validation,
     )
     builder.add_edge("prepare_architecture_approval", "architecture_approval_gate")
     builder.add_conditional_edges("architecture_approval_gate", route_architecture_approval)

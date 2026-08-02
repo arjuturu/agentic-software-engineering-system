@@ -7,6 +7,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     correlation_id: str
     scenario_type: str
     scenario_profile: dict[str, Any]
+    scenario_path_policy: dict[str, Any]
     execution_mode: str
     scripted_scenario: str
     workspace_name: str
@@ -19,6 +20,8 @@ class EngineeringWorkflowState(TypedDict, total=False):
     architecture_design: dict[str, Any]
     architecture_version: int
     implementation_plan: dict[str, Any]
+    planning_validation_errors: list[dict[str, Any]]
+    planning_correction_context: dict[str, Any]
     active_task: dict[str, Any]
     task_validation_result: dict[str, Any]
     all_required_tasks_completed: bool

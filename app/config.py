@@ -33,12 +33,15 @@ class Settings(BaseSettings):
 
     LLM_MODE: Literal["SCRIPTED", "OPENAI"] = "SCRIPTED"
     OPENAI_API_KEY: SecretStr | None = None
-    OPENAI_MODEL: str = ""
+    OPENAI_MODEL: str = "gpt-5.6-terra"
+    OPENAI_REASONING_EFFORT: Literal["none", "low", "medium", "high", "xhigh", "max"] = (
+        "medium"
+    )
     OPENAI_TEMPERATURE: float = Field(default=0, ge=0, le=2)
     OPENAI_MAX_OUTPUT_TOKENS: int = Field(default=2500, gt=0)
     REQUIREMENT_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
     DESIGN_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
-    PLANNING_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
+    PLANNING_AGENT_MAX_RETRIES: int = Field(default=2, ge=0)
     CODING_AGENT_MAX_RETRIES: int = Field(default=2, ge=0)
     VALIDATION_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
     DEFAULT_WORKFLOW_TIMEOUT_SECONDS: int = Field(default=300, gt=0)

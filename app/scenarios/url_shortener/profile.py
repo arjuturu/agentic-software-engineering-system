@@ -9,6 +9,7 @@ class ScenarioProfile(BaseModel):
     summary: str
     required_capabilities: tuple[str, ...]
     allowed_paths: tuple[str, ...]
+    path_policy_mode: str
     validation_rules: tuple[str, ...]
 
 
@@ -36,6 +37,7 @@ URL_SHORTENER_PROFILE = ScenarioProfile(
         ".gitignore",
         "README.md",
     ),
+    path_policy_mode="SCENARIO_RESTRICTED",
     validation_rules=(
         "required HTTP routes and methods exist",
         "target application imports in an isolated subprocess",

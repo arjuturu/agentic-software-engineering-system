@@ -117,11 +117,17 @@ class PathPolicy:
 
     @classmethod
     def resolve_effective_allowed_paths(
-        cls, task_allowed_paths: list[str], scenario_allowed_paths: list[str]
+        cls,
+        task_allowed_paths: list[str],
+        scenario_allowed_paths: list[str],
+        *,
+        policy_mode: str | None = None,
     ) -> list[str]:
         """Apply task scope and any non-empty scenario restriction deterministically."""
         task_paths = cls.normalize_policy_paths(task_allowed_paths)
         scenario_paths = cls.normalize_policy_paths(scenario_allowed_paths)
+        if str(policy_mode or "").upper() == "DENY_ALL":
+            return []
         if not scenario_paths:
             return task_paths
         effective: set[str] = set()

@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from app.agents.openai_provider import OpenAIProvider
+from app.config import Settings
 from app.core.exceptions import ApplicationError
 from app.schemas.agents.design import DesignOutput
 
@@ -30,6 +31,30 @@ class _Model:
     def with_structured_output(self, output_model: type[BaseModel], **kwargs) -> _Runnable:
         self.calls.append({"output_model": output_model, **kwargs})
         return _Runnable()
+
+
+def test_provider_configures_terra_with_explicit_reasoning_without_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    class ConstructorOnlyModel:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("app.agents.openai_provider.ChatOpenAI", ConstructorOnlyModel)
+    settings = Settings(
+        _env_file=None,
+        LLM_MODE="OPENAI",
+        OPENAI_API_KEY="test-placeholder",
+    )
+
+    OpenAIProvider(settings)
+
+    assert captured["model"] == "gpt-5.6-terra"
+    assert captured["reasoning_effort"] == "medium"
+    assert "temperature" not in captured
+    assert captured["max_tokens"] == 2500
 
 
 def test_provider_uses_native_json_schema_and_sanitizes_validation_failure() -> None:

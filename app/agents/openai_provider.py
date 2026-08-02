@@ -93,13 +93,18 @@ class OpenAIProvider:
                 "MODEL_PROVIDER_NOT_CONFIGURED",
                 500,
             )
+        model_options: dict[str, Any] = {
+            "model": settings.OPENAI_MODEL,
+            "reasoning_effort": settings.OPENAI_REASONING_EFFORT,
+            "api_key": settings.OPENAI_API_KEY,
+            "timeout": min(settings.DEFAULT_WORKFLOW_TIMEOUT_SECONDS, 120),
+            "max_retries": 1,
+            "max_tokens": settings.OPENAI_MAX_OUTPUT_TOKENS,
+        }
+        if not settings.OPENAI_MODEL.startswith("gpt-5.6"):
+            model_options["temperature"] = settings.OPENAI_TEMPERATURE
         self.model = ChatOpenAI(
-            model=settings.OPENAI_MODEL,
-            temperature=settings.OPENAI_TEMPERATURE,
-            api_key=settings.OPENAI_API_KEY,
-            timeout=min(settings.DEFAULT_WORKFLOW_TIMEOUT_SECONDS, 120),
-            max_retries=1,
-            max_tokens=settings.OPENAI_MAX_OUTPUT_TOKENS,
+            **model_options,
         )
 
     def generate(

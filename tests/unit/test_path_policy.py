@@ -88,6 +88,12 @@ def test_empty_scenario_paths_add_no_restriction(policy: PathPolicy) -> None:
     assert policy.validate_allowed_path("src/main.py", effective) == "src/main.py"
 
 
+def test_explicit_deny_all_is_distinct_from_empty_restrictions(policy: PathPolicy) -> None:
+    assert policy.resolve_effective_allowed_paths(
+        ["src"], [], policy_mode="DENY_ALL"
+    ) == []
+
+
 def test_nonempty_scenario_paths_restrict_task_paths(policy: PathPolicy) -> None:
     effective = policy.resolve_effective_allowed_paths(
         ["src", "tests"], ["src/approved"]
