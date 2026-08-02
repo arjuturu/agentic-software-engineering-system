@@ -42,6 +42,10 @@ class GitTool:
                 f"core.hooksPath={disabled_hooks}",
                 "-c",
                 "commit.gpgSign=false",
+                "-c",
+                "user.name=Governed Workflow",
+                "-c",
+                "user.email=workflow@example.invalid",
                 "-C",
                 str(repository),
                 *arguments,
@@ -272,11 +276,7 @@ class GitTool:
         repository = self._repository(path, operation)
         if isinstance(repository, GitOperationResult):
             return repository
-        arguments = (
-            ["diff", "--cached", "--no-ext-diff"]
-            if staged
-            else ["diff", "--no-ext-diff"]
-        )
+        arguments = ["diff", "--cached", "--no-ext-diff"] if staged else ["diff", "--no-ext-diff"]
         try:
             return self._result(operation, repository, self._raw(repository, arguments))
         except (OSError, subprocess.SubprocessError):
@@ -305,7 +305,3 @@ class GitTool:
             return self._blocked(
                 operation, "GIT_UNAVAILABLE", "Tracked files could not be restored."
             )
-
-
-
-

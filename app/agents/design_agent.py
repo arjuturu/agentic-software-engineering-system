@@ -1,0 +1,24 @@
+from app.agents.runner import AgentRunner
+from app.schemas.agents.design import DesignOutput
+
+
+class DesignAgent:
+    def __init__(self, runner: AgentRunner) -> None:
+        self.runner = runner
+
+    def run(self, state: dict) -> dict:
+        return self.runner.run(
+            workflow_id=state["workflow_id"],
+            agent_name="DESIGN_AGENT",
+            stage="DESIGN",
+            prompt_name="design-agent.md",
+            input_payload={
+                "workflow_id": state["workflow_id"],
+                "scenario_type": state["scenario_type"],
+                "scripted_scenario": state["scripted_scenario"],
+                "retry_number": state.get("retry_counts", {}).get("design", 0),
+                "approved_requirement": state["approved_requirement"],
+            },
+            output_model=DesignOutput,
+            markdown_name="04-architecture-design.md",
+        )
