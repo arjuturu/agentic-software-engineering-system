@@ -18,7 +18,17 @@ from app.tools.path_policy import PathPolicy, PathPolicyError
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_EXTENSIONS = {".py", ".md", ".txt", ".toml", ".ini", ".yaml", ".yml", ".json"}
+_ALLOWED_EXTENSIONS = {
+    ".py",
+    ".md",
+    ".txt",
+    ".toml",
+    ".ini",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".mako",
+}
 _ALLOWED_EXTENSIONLESS = {"README", "LICENSE", "Makefile", "Dockerfile"}
 _ALLOWED_SPECIAL = {".env.example", ".gitignore"}
 

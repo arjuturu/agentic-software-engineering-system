@@ -519,6 +519,19 @@ class WorkflowNodes:
             "repository_context": repository_context,
         }
         output = self.repository_coding.code(coding_state, hashes)
+        attempt_number = int(
+            retry_context.get("attempt_number")
+            or state.get("retry_counts", {}).get("coding", 0) + 1
+        )
+        coding_attempt = {
+            "task_id": active_task.get("task_id"),
+            "attempt_number": attempt_number,
+            "originating_task_id": (
+                retry_context.get("originating_task_id") or active_task.get("task_id")
+            ),
+            "retry_task_id": retry_context.get("retry_task_id"),
+            "applied": False,
+        }
         self.audit.record(
             state["workflow_id"],
             "CHANGE_PLAN_CREATED",
@@ -528,6 +541,10 @@ class WorkflowNodes:
         return {
             "active_task": active_task,
             "code_change_plan": output,
+            "coding_attempt": coding_attempt,
+            "implementation_result": {},
+            "task_validation_result": {},
+            "validation_result": {},
             "workflow_status": "IMPLEMENTING",
             "current_stage": "CODING",
             "last_error": {},
@@ -716,6 +733,11 @@ class WorkflowNodes:
             )
             return {
                 "implementation_result": state["code_change_plan"],
+                "coding_attempt": {
+                    **state.get("coding_attempt", {}),
+                    "applied": True,
+                    "applied_change_count": 0,
+                },
                 "last_error": {},
             }
         contexts = state.get("edit_policy_contexts", [])
@@ -759,7 +781,18 @@ class WorkflowNodes:
         if staged.status != ToolStatus.SUCCESS or committed.status != ToolStatus.SUCCESS:
             return self._policy_error("GIT_CHECKPOINT_FAILED", "The change checkpoint failed.")
         self.audit.record(
-            state["workflow_id"], "CHANGES_APPLIED", "CODING", {"changed_files": changed}
+            state["workflow_id"],
+            "CHANGES_APPLIED",
+            "CODING",
+            {
+                "changed_files": changed,
+                "task_id": state.get("active_task", {}).get("task_id"),
+                "attempt_number": state.get("coding_attempt", {}).get("attempt_number"),
+                "originating_task_id": state.get("coding_attempt", {}).get(
+                    "originating_task_id"
+                ),
+                "retry_task_id": state.get("coding_attempt", {}).get("retry_task_id"),
+            },
         )
         implementation_ref = self.artifacts.write_markdown(
             state["workflow_id"],
@@ -777,6 +810,11 @@ class WorkflowNodes:
         )
         return {
             "implementation_result": state["code_change_plan"],
+            "coding_attempt": {
+                **state.get("coding_attempt", {}),
+                "applied": True,
+                "applied_change_count": len(changed),
+            },
             "changed_files": sorted(set([*state.get("changed_files", []), *changed])),
             "current_commit": committed.commit_id or "",
             "git_diff_artifact": diff_ref,
@@ -795,12 +833,19 @@ class WorkflowNodes:
     def task_validation(self, state: dict) -> dict:
         task = state.get("active_task", {})
         task_id = task.get("task_id")
+        attempt = state.get("coding_attempt", {})
         commands = [str(item) for item in task.get("validation_commands", [])]
         self.audit.record(
             state["workflow_id"],
             "TASK_VALIDATION_STARTED",
             "TASK_VALIDATION",
-            {"task_id": task_id, "validation_commands": commands},
+            {
+                "task_id": task_id,
+                "validation_commands": commands,
+                "attempt_number": attempt.get("attempt_number"),
+                "originating_task_id": attempt.get("originating_task_id"),
+                "retry_task_id": attempt.get("retry_task_id"),
+            },
         )
         command_results = self.tests.run_task_commands(Path(state["repository_path"]), commands)
         passed = all(result.status == ToolStatus.SUCCESS for result in command_results)
@@ -810,6 +855,10 @@ class WorkflowNodes:
         result = {
             "level": "TASK",
             "task_id": task_id,
+            "attempt_number": attempt.get("attempt_number"),
+            "originating_task_id": attempt.get("originating_task_id"),
+            "retry_task_id": attempt.get("retry_task_id"),
+            "applied": bool(attempt.get("applied")),
             "status": "VALIDATION_PASSED" if passed else "VALIDATION_FAILED",
             "failure_category": None if passed else "IMPLEMENTATION_DEFECT",
             "command_results": [item.model_dump(mode="json") for item in command_results],
@@ -826,6 +875,9 @@ class WorkflowNodes:
                 "task_id": task_id,
                 "status": result["status"],
                 "failed_command": result["failed_command"],
+                "attempt_number": result["attempt_number"],
+                "originating_task_id": result["originating_task_id"],
+                "retry_task_id": result["retry_task_id"],
             },
         )
         return {"task_validation_result": result, "validation_result": result}
@@ -1013,13 +1065,32 @@ class WorkflowNodes:
 
     def retry_router(self, state: dict) -> dict:
         current = state.get("retry_counts", {}).get("coding", 0)
-        category = state.get("validation_result", {}).get("failure_category") or state.get(
-            "last_error", {}
-        ).get("category")
+        validation = state.get("task_validation_result", {})
+        attempt = state.get("coding_attempt", {})
+        current_validation = (
+            validation.get("status") == "VALIDATION_FAILED"
+            and validation.get("task_id") == attempt.get("task_id")
+            and validation.get("attempt_number") == attempt.get("attempt_number")
+            and validation.get("retry_task_id") == attempt.get("retry_task_id")
+            and validation.get("applied") is True
+            and attempt.get("applied") is True
+        )
+        if not current_validation:
+            return {
+                "retry_counts": dict(state.get("retry_counts", {})),
+                "last_error": {
+                    **state.get("last_error", {}),
+                    "retry_allowed": False,
+                },
+                "retry_context": {},
+                "workflow_status": "FAILED",
+                "current_stage": "CODING",
+            }
+        category = validation.get("failure_category")
         decision = self.retry_policy.decide("coding", current, category)
         counts = {**state.get("retry_counts", {}), "coding": decision.next_count}
         originating_task = state.get("active_task", {})
-        failed_command = state.get("validation_result", {}).get("failed_command")
+        failed_command = validation.get("failed_command") if current_validation else None
         retry_task_id = (
             f"{originating_task.get('task_id', 'TASK')}-RETRY-{decision.next_count}"
             if decision.allowed

@@ -33,6 +33,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     repository_scan: dict[str, Any]
     repository_analysis: dict[str, Any]
     code_change_plan: dict[str, Any]
+    coding_attempt: dict[str, Any]
     implementation_result: dict[str, Any]
     baseline_commit: str
     working_branch: str

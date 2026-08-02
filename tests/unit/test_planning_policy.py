@@ -196,8 +196,8 @@ def test_presatisfied_governance_tasks_are_rejected() -> None:
     architecture = _task(
         title="Generate architecture design artifact",
         description="Create architecture Markdown.",
-        expected_files=["architecture.md"],
-        allowed_paths=["architecture.md"],
+        expected_files=["architecture-design.md"],
+        allowed_paths=["architecture-design.md"],
     )
     approval = _task(
         task_id="TASK-002",
@@ -224,6 +224,178 @@ def test_presatisfied_governance_tasks_are_rejected() -> None:
         "ORCHESTRATION_GATE_AS_EXECUTABLE_TASK",
         "APPLICATION_DEPENDS_ON_DUPLICATE_GOVERNANCE_TASK",
     }
+
+
+def test_wf_9c6c4f20bbbd_v3_governance_classification_passes() -> None:
+    tasks = [
+        _task(
+            task_id="TASK-017",
+            task_type="SETUP",
+            title="Initialize project and governed tool configuration",
+            expected_files=["pyproject.toml"],
+            allowed_paths=["pyproject.toml"],
+        ),
+        _task(
+            task_id="TASK-028",
+            task_type="MIGRATION",
+            title="Implement SQLite persistence and Alembic schema migration",
+            dependencies=["TASK-017"],
+            expected_files=["alembic/env.py"],
+            allowed_paths=["alembic"],
+        ),
+        _task(
+            task_id="TASK-039",
+            task_type="IMPLEMENTATION",
+            title="Implement validation, short-code allocation, and URL mapping service",
+            dependencies=["TASK-028"],
+            expected_files=["app/services.py"],
+            allowed_paths=["app"],
+        ),
+        _task(
+            task_id="TASK-040",
+            task_type="INTEGRATION",
+            title="Compose FastAPI routes, application wiring, and operational documentation",
+            description=(
+                "Produce repository operational and release documentation without recreating "
+                "upstream architecture or implementation-plan artifacts."
+            ),
+            dependencies=["TASK-039"],
+            expected_files=[
+                "app/main.py",
+                "README.md",
+                "docs/validation.md",
+                "docs/change-summary.md",
+                "docs/pr-summary.md",
+                "docs/known-limitations.md",
+            ],
+            allowed_paths=["app", "README.md", "docs"],
+            entry_criteria=[
+                "Approved architecture-design and implementation-plan artifacts are "
+                "pre-satisfied and are not target-workspace deliverables."
+            ],
+            exit_criteria=[
+                "No documentation recreates the upstream architecture-design or "
+                "implementation-plan artifacts."
+            ],
+        ),
+        _task(
+            task_id="TASK-051",
+            task_type="TESTING",
+            title="Add isolated acceptance and lifecycle test coverage",
+            dependencies=["TASK-040"],
+            expected_files=["tests/test_application_contract.py"],
+            allowed_paths=["tests"],
+        ),
+        _task(
+            task_id="TASK-073",
+            task_type="VALIDATION",
+            title="Execute final deterministic quality gates",
+            dependencies=["TASK-051"],
+            expected_files=[],
+            allowed_paths=[],
+        ),
+    ]
+
+    assert _validate(_plan(tasks=tasks), {"allowed_paths": []}) == ()
+
+
+def test_integration_may_reference_approved_upstream_artifacts() -> None:
+    integration = _task(
+        task_id="TASK-002",
+        task_type="INTEGRATION",
+        title="Wire approved application components",
+        description=(
+            "Consume the approved architecture and implementation plan for traceability; "
+            "the approval remains outside the executable plan."
+        ),
+        dependencies=["TASK-001"],
+        expected_files=["README.md", "docs/validation.md", "docs/change-summary.md"],
+        allowed_paths=["README.md", "docs"],
+    )
+
+    assert _validate(
+        _plan(tasks=[_task(task_type="SETUP"), integration]), {"allowed_paths": []}
+    ) == ()
+
+
+def test_explicit_current_approval_gate_action_is_rejected() -> None:
+    approval = _task(
+        task_id="TASK-002",
+        title="Wait for ARCHITECTURE_AND_PLAN approval",
+        description="Treat the human approval as executable work.",
+        dependencies=["TASK-001"],
+        expected_files=[],
+        allowed_paths=["approval.txt"],
+    )
+
+    codes = {
+        error["code"]
+        for error in _validate(
+            _plan(tasks=[_task(task_type="SETUP"), approval]), {"allowed_paths": []}
+        )
+    }
+
+    assert "ORCHESTRATION_GATE_AS_EXECUTABLE_TASK" in codes
+
+
+@pytest.mark.parametrize("artifact", ["architecture-design.md", "implementation-plan.md"])
+def test_exact_upstream_artifact_regeneration_is_rejected(artifact: str) -> None:
+    duplicate = _task(
+        task_id="TASK-002",
+        title=f"Regenerate {artifact}",
+        dependencies=["TASK-001"],
+        expected_files=[artifact],
+        allowed_paths=[artifact],
+    )
+
+    codes = {
+        error["code"]
+        for error in _validate(
+            _plan(tasks=[_task(task_type="SETUP"), duplicate]), {"allowed_paths": []}
+        )
+    }
+
+    assert "DUPLICATE_UPSTREAM_ARTIFACT_TASK" in codes
+
+
+def test_dependency_error_only_cascades_from_a_true_governance_task() -> None:
+    valid_integration = _task(
+        task_id="TASK-002",
+        task_type="INTEGRATION",
+        title="Document approved architecture integration",
+        description="Do not regenerate the approved implementation plan.",
+        dependencies=["TASK-001"],
+        expected_files=["README.md"],
+        allowed_paths=["README.md"],
+    )
+    dependent = _task(
+        task_id="TASK-003",
+        task_type="TESTING",
+        dependencies=["TASK-002"],
+        expected_files=["tests/test_api.py"],
+        allowed_paths=["tests"],
+    )
+    valid_codes = {
+        error["code"]
+        for error in _validate(
+            _plan(tasks=[_task(task_type="SETUP"), valid_integration, dependent]),
+            {"allowed_paths": []},
+        )
+    }
+    invalid_gate = {
+        **valid_integration,
+        "title": "Request ARCHITECTURE_AND_PLAN approval",
+    }
+    invalid_codes = {
+        error["code"]
+        for error in _validate(
+            _plan(tasks=[_task(task_type="SETUP"), invalid_gate, dependent]),
+            {"allowed_paths": []},
+        )
+    }
+
+    assert "APPLICATION_DEPENDS_ON_DUPLICATE_GOVERNANCE_TASK" not in valid_codes
+    assert "APPLICATION_DEPENDS_ON_DUPLICATE_GOVERNANCE_TASK" in invalid_codes
 
 
 def test_post_approval_plan_requires_setup_or_implementation_first() -> None:

@@ -197,6 +197,21 @@ def test_exact_env_example_is_allowed_by_policy_and_editor(
     assert (repository / ".env.example").read_text(encoding="utf-8") == "APP_ENV=local\n"
 
 
+def test_alembic_mako_template_is_an_allowed_text_file(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+
+    result = editor.apply_batch(
+        repository,
+        [create_edit("alembic/script.py.mako", "${upgrades if upgrades else 'pass'}\n")],
+        allowed_paths=["alembic"],
+    )
+
+    assert result.status == ToolStatus.SUCCESS
+    assert (repository / "alembic/script.py.mako").is_file()
+
+
 @pytest.mark.parametrize("path", [".env.local", ".env.production", ".ENV.EXAMPLE"])
 def test_env_variants_remain_blocked_by_editor(
     editor_setup: tuple[ControlledEditor, Path], path: str

@@ -11,7 +11,169 @@ from app.core.exceptions import ApplicationError
 from app.database.models import AgentExecution, ApprovalDecision
 from app.main import create_app
 from app.orchestration.nodes import WorkflowNodes
+from app.tools.models import CommandResult, ToolStatus
+from app.tools.test_runner import TestRunner
 from tests.phase3_helpers import advance_to_release, approve_pending, create_workflow
+
+
+def _install_high_risk_coding_retry(
+    monkeypatch: pytest.MonkeyPatch, *, validation_failures: int
+) -> None:
+    original_generate = ScriptedProvider.generate
+    validation_calls = 0
+
+    def high_risk_retry(self: ScriptedProvider, **kwargs):
+        generated = original_generate(self, **kwargs)
+        output = generated.model_dump(mode="json")
+        payload = kwargs["input_payload"]
+        if kwargs["agent_name"] != "CODING_AGENT":
+            return output
+        active_task = payload.get("active_task", {})
+        if active_task.get("task_id") != "TASK-001":
+            return output
+        retry_number = int(payload.get("retry_number", 0))
+        if retry_number == 0:
+            edits = []
+        elif retry_number == 1:
+            edits = [
+                {
+                    "operation": "CREATE",
+                    "relative_path": "pyproject.toml",
+                    "content": "[project]\nname = 'approval-retry'\nversion = '0.1.0'\n",
+                    "expected_absent": True,
+                    "expected_hash": None,
+                    "old_text": None,
+                    "replacement_text": None,
+                }
+            ]
+        else:
+            edits = [
+                {
+                    "operation": "MODIFY",
+                    "relative_path": "pyproject.toml",
+                    "content": (
+                        "[project]\nname = 'approval-retry'\nversion = '0.1.1'\n"
+                    ),
+                    "expected_absent": False,
+                    "expected_hash": payload.get("file_hashes", {}).get(
+                        "pyproject.toml"
+                    ),
+                    "old_text": None,
+                    "replacement_text": None,
+                }
+            ]
+        output.update(
+            change_plan=[
+                {
+                    "task_id": active_task["task_id"],
+                    "paths": [edit["relative_path"] for edit in edits],
+                }
+            ],
+            structured_edits=edits,
+            high_risk_change=True,
+            high_risk_reason="Project configuration requires human review.",
+        )
+        return output
+
+    def deterministic_task_validation(
+        self: TestRunner, repository_path, command_ids
+    ) -> list[CommandResult]:
+        del self, repository_path
+        nonlocal validation_calls
+        validation_calls += 1
+        failed = validation_calls <= validation_failures
+        command_id = command_ids[0] if command_ids else "RUFF_CHECK"
+        return [
+            CommandResult(
+                command_id=command_id,
+                status=ToolStatus.FAILED if failed else ToolStatus.SUCCESS,
+                exit_code=1 if failed else 0,
+                stdout="",
+                stderr="current attempt failed" if failed else "",
+                duration_ms=1,
+            )
+        ]
+
+    monkeypatch.setattr(ScriptedProvider, "generate", high_risk_retry)
+    monkeypatch.setattr(TestRunner, "run_task_commands", deterministic_task_validation)
+
+
+def _advance_to_first_high_risk_approval(client: TestClient, workspace: str) -> dict:
+    workflow = create_workflow(client, workspace=workspace)
+    workflow = approve_pending(client, workflow)
+    workflow = approve_pending(client, workflow)
+    assert workflow["currentStage"] == "HIGH_RISK_CHANGE_APPROVAL"
+    assert workflow["pendingApproval"]["gateType"] == "HIGH_RISK_CHANGE"
+    return workflow
+
+
+def test_high_risk_retry_approval_applies_current_plan_before_validation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_high_risk_coding_retry(monkeypatch, validation_failures=1)
+    workflow = _advance_to_first_high_risk_approval(
+        client, "high-risk-retry-current-plan"
+    )
+
+    retry_approval = approve_pending(client, workflow)
+    assert retry_approval["retryCounts"]["coding"] == 1
+    assert retry_approval["pendingApproval"]["gateType"] == "HIGH_RISK_CHANGE"
+
+    completed = approve_pending(client, retry_approval)
+    audit = client.get(
+        f"/api/v1/workflows/{completed['workflowId']}/audit"
+    ).json()
+    task_events = [
+        item
+        for item in audit
+        if (item["details"] or {}).get("task_id") == "TASK-001"
+        or (item["details"] or {}).get("originating_task_id") == "TASK-001"
+    ]
+    event_types = [item["eventType"] for item in task_events]
+
+    retry_index = event_types.index("RETRY_STARTED")
+    applied_index = event_types.index("CHANGES_APPLIED", retry_index + 1)
+    validation_index = event_types.index("TASK_VALIDATION_STARTED", applied_index + 1)
+    completed_index = event_types.index("TASK_COMPLETED", validation_index + 1)
+    assert retry_index < applied_index < validation_index < completed_index
+    assert completed["retryCounts"]["coding"] == 1
+    assert event_types.count("RETRY_STARTED") == 1
+    current_validation = next(
+        item
+        for item in reversed(task_events)
+        if item["eventType"] == "TASK_VALIDATION_COMPLETED"
+    )
+    assert current_validation["details"]["status"] == "VALIDATION_PASSED"
+    assert current_validation["details"]["attempt_number"] == 2
+    assert current_validation["details"]["originating_task_id"] == "TASK-001"
+    assert current_validation["details"]["retry_task_id"] == "TASK-001-RETRY-1"
+
+
+def test_current_retry_validation_failure_starts_next_bounded_retry(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_high_risk_coding_retry(monkeypatch, validation_failures=2)
+    workflow = _advance_to_first_high_risk_approval(
+        client, "high-risk-retry-current-failure"
+    )
+    retry_approval = approve_pending(client, workflow)
+
+    next_retry_approval = approve_pending(client, retry_approval)
+    audit = client.get(
+        f"/api/v1/workflows/{next_retry_approval['workflowId']}/audit"
+    ).json()
+    retries = [
+        item
+        for item in audit
+        if item["eventType"] == "RETRY_STARTED"
+        and item["details"].get("originating_task_id") == "TASK-001"
+    ]
+
+    assert next_retry_approval["retryCounts"]["coding"] == 2
+    assert next_retry_approval["pendingApproval"]["gateType"] == "HIGH_RISK_CHANGE"
+    assert len(retries) == 2
+    assert retries[-1]["details"]["retry_task_id"] == "TASK-001-RETRY-2"
+    assert retries[-1]["details"]["attempt_number"] == 3
 
 
 def test_coding_retry_then_pass(

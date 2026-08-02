@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -18,6 +19,35 @@ _PRE_SATISFIED_CAPABILITIES = [
     "IMPLEMENTATION_PLAN_ARTIFACT_GENERATED",
 ]
 _NON_CORRECTABLE_ERRORS = {"SCENARIO_DENY_ALL"}
+_UPSTREAM_ARTIFACT_NAMES = frozenset(
+    {
+        "architecture-design.md",
+        "architecture-design.json",
+        "implementation-plan.md",
+        "implementation-plan.json",
+        "requirement-analysis.md",
+        "requirement-analysis.json",
+    }
+)
+_CURRENT_GATE = "ARCHITECTURE_AND_PLAN"
+_GATE_ACTION_PATTERN = re.compile(
+    r"\b(?:request|obtain|await|wait\s+for|execute|perform)\s+(?:the\s+)?"
+    r"(?:ARCHITECTURE_AND_PLAN|architecture(?:-design)?\s+(?:and|/)\s+"
+    r"(?:implementation[- ]plan|plan))\s+(?:human\s+)?approval\b",
+    re.IGNORECASE,
+)
+_GATE_DECISION_PATTERN = re.compile(
+    r"\b(?:approve|reject)\s+(?:the\s+)?"
+    r"(?:ARCHITECTURE_AND_PLAN|architecture(?:-design)?\s+(?:and|/)\s+"
+    r"(?:implementation[- ]plan|plan))(?:\s+artifacts?)?\b",
+    re.IGNORECASE,
+)
+_GATE_OUTPUT_PATTERN = re.compile(
+    r"\b(?:ARCHITECTURE_AND_PLAN|architecture(?:-design)?\s+(?:and|/)\s+"
+    r"(?:implementation[- ]plan|plan))\s+approval\s+(?:completion|decision)\s+"
+    r"(?:is|as)\s+(?:the\s+)?task\s+output\b",
+    re.IGNORECASE,
+)
 
 
 def normalize_scenario_path_policy(profile: dict) -> dict[str, object]:
@@ -344,9 +374,8 @@ class PlanValidator:
                 task_type = PlanTaskType(str(task.get("task_type", "")))
             except ValueError:
                 task_type = None
-            text = self._task_search_text(task)
-            regenerates_upstream = self._regenerates_upstream_artifact(text)
-            executes_gate = self._executes_current_approval_gate(text)
+            regenerates_upstream = self._regenerates_upstream_artifact(task)
+            executes_gate = self._executes_current_approval_gate(task)
             if regenerates_upstream:
                 duplicated_governance.add(task_id)
                 errors.append(
@@ -414,44 +443,58 @@ class PlanValidator:
         except ValueError:
             return None
 
-    @staticmethod
-    def _task_search_text(task: dict) -> str:
-        return " ".join(
-            [
-                str(task.get("title", "")),
-                str(task.get("description", "")),
-                *map(str, task.get("expected_files", [])),
-                *map(str, task.get("entry_criteria", [])),
-                *map(str, task.get("exit_criteria", [])),
-                *map(str, task.get("acceptance_criteria_covered", [])),
-            ]
-        ).casefold()
+    def _regenerates_upstream_artifact(self, task: dict) -> bool:
+        """Identify upstream outputs by declared artifact purpose or exact output filename."""
+        purpose = str(task.get("artifact_purpose", "")).strip().upper()
+        if purpose in {
+            "UPSTREAM_REQUIREMENT_ANALYSIS",
+            "UPSTREAM_ARCHITECTURE_DESIGN",
+            "UPSTREAM_IMPLEMENTATION_PLAN",
+        }:
+            return True
+        return any(
+            self._is_upstream_artifact_path(str(path))
+            for path in task.get("expected_files", [])
+        )
 
     @staticmethod
-    def _regenerates_upstream_artifact(text: str) -> bool:
-        action = any(
-            word in text for word in ("create", "generate", "regenerate", "produce", "write")
+    def _is_upstream_artifact_path(path: str) -> bool:
+        normalized = path.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        versionless = re.sub(r"^\d{2}-", "", normalized)
+        versionless = re.sub(r"-v\d+(?=\.[^.]+$)", "", versionless)
+        return versionless in _UPSTREAM_ARTIFACT_NAMES
+
+    @staticmethod
+    def _executes_current_approval_gate(task: dict) -> bool:
+        """Recognize an explicit current-gate action, not incidental governance prose."""
+        gate = str(
+            task.get("orchestration_gate") or task.get("current_gate") or ""
+        ).strip().upper()
+        action = str(
+            task.get("orchestration_gate_action") or task.get("gate_action") or ""
+        ).strip().upper()
+        if gate == _CURRENT_GATE and action in {
+            "REQUEST",
+            "WAIT",
+            "APPROVE",
+            "REJECT",
+            "EXECUTE",
+        }:
+            return True
+
+        # Schemas currently have no gate-action field, so narrowly recognize explicit
+        # action statements in task identity fields. Criteria and assumptions are not scanned.
+        identity_text = " ".join(
+            (str(task.get("title", "")), str(task.get("description", "")))
         )
-        upstream = any(
-            phrase in text
-            for phrase in (
-                "architecture artifact",
-                "architecture design",
-                "architecture markdown",
-                "implementation plan artifact",
-                "implementation-plan markdown",
-                "implementation plan markdown",
+        return any(
+            pattern.search(identity_text)
+            for pattern in (
+                _GATE_ACTION_PATTERN,
+                _GATE_DECISION_PATTERN,
+                _GATE_OUTPUT_PATTERN,
             )
         )
-        return action and upstream
-
-    @staticmethod
-    def _executes_current_approval_gate(text: str) -> bool:
-        approval = "approval" in text or "approve" in text
-        gate = "architecture_and_plan" in text or (
-            "architecture" in text and "plan" in text
-        )
-        return approval and gate
 
     @staticmethod
     def _error(code: str, message: str) -> dict[str, object]:
