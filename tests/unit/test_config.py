@@ -18,6 +18,10 @@ def test_default_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.SHORT_CODE_LENGTH == 7
     assert settings.WORKSPACE_ROOT == Path("workspace").resolve()
     assert settings.ARTIFACT_ROOT == Path("generated_artifacts").resolve()
+    assert settings.MAX_SCAN_FILES == 2000
+    assert settings.MAX_SCAN_FILE_BYTES == 1048576
+    assert settings.MAX_EDIT_FILE_BYTES == 1048576
+    assert settings.MAX_COMMAND_OUTPUT_BYTES == 1048576
     assert settings.ENABLE_GIT_WRITES is True
     assert settings.ENABLE_EXTERNAL_NETWORK is False
 

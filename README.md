@@ -103,8 +103,48 @@ and the configured checkpoint database parent directory. A mandatory failure ret
 HTTP 503 with the failed component marked DOWN; responses do not expose local paths,
 credentials, or exception traces.
 
+## Phase 2: controlled engineering tools
+
+The Agentic Software Engineering System remains the **control plane**. Future generated
+applications are separate **target applications** and may only be manipulated beneath
+the workspace directory; the intended greenfield target is
+workspace/url-shortener-greenfield/. Phase 2 does not generate that application.
+
+The controlled tool layer provides canonical path enforcement, workspace management,
+read-only repository scanning, exact hash-guarded edits, local Git operations, approved
+command execution, test and migration runners, and workflow artifact storage.
+
+### Safety model
+
+- Canonical resolved paths must remain beneath the configured workspace or artifact root.
+  Traversal, external absolute paths, escaping links/junctions, .env, .git/config,
+  credentials, private keys, and system/device paths are blocked.
+- File edits support only CREATE and exact MODIFY. Every batch is fully validated before
+  writing, uses atomic replacement, and restores earlier writes if a later write fails.
+- Commands are selected by fixed IDs. They use argument arrays, shell=False, timeouts,
+  bounded output, and a minimal sanitized child environment. Arbitrary command strings,
+  pipes, redirects, and unrestricted revisions are not accepted.
+- Git operations are local-only and workspace-bound. The tool can initialize, inspect,
+  branch, stage explicit existing files, commit, diff, and restore tracked files. It
+  disables hooks, signing, and external diff helpers, and cannot add remotes, clone,
+  fetch, pull, push, merge, force-push, or clean ignored files.
+- Repository scanning never imports or executes target code, does not read restricted or
+  binary files, bounds file sizes/counts, and does not follow escaping symbolic links.
+
+### Phase 2 verification
+
+~~~powershell
+python -m ruff check .
+python -m pytest -v
+python -m pytest tests/integration/test_greenfield_tool_flow.py -v
+~~~
+
+All Phase 2 integration tests use temporary workspace, artifact, Git, database, and
+migration directories. They do not modify the control plane's real workspace, data, or
+generated_artifacts contents.
 ## Current limitations
 
-Phase 1 contains storage models for future workflows but no workflow execution behavior.
-LangGraph, agents, Gradio, OpenAI integration, URL-shortener business APIs, API scanning,
-Git-writing workflows, and deployment will be implemented in later phases.
+Phase 2 provides deterministic tools but no workflow execution or autonomous behavior.
+Agents and LangGraph orchestration begin in Phase 3. Gradio, OpenAI integration,
+URL-shortener business APIs, API scanning,
+remote Git workflows and deployment will be implemented in later phases.
