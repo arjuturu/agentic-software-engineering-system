@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -87,17 +88,38 @@ class AgentRunner:
                 )
             return payload
         except Exception as exc:
-            logger.warning("agent=%s status=FAILED error_type=%s", agent_name, type(exc).__name__)
+            diagnostics = dict(getattr(exc, "details", {}) or {})
+            diagnostics.setdefault("agent_name", agent_name)
+            diagnostics.setdefault("exception_class", type(exc).__name__)
+            diagnostics.setdefault("field_paths", [])
+            diagnostics.setdefault("validation_error_types", [])
+            diagnostics.setdefault("finish_reason", None)
+            diagnostics.setdefault("input_tokens", None)
+            diagnostics.setdefault("output_tokens", None)
+            diagnostics.setdefault("http_request_made", False)
+            error_code = getattr(exc, "error_code", "AGENT_FAILED")
+            logger.warning(
+                "agent=%s status=FAILED error_type=%s request_made=%s",
+                agent_name,
+                diagnostics["exception_class"],
+                diagnostics["http_request_made"],
+            )
             with self.sessions.begin() as session:
                 item = session.get(
                     __import__("app.database.models", fromlist=["AgentExecution"]).AgentExecution,
                     execution_id,
                 )
-                AgentExecutionRepository(session).fail(item, "Agent execution failed safely.")
+                AgentExecutionRepository(session).fail(
+                    item, json.dumps(diagnostics, sort_keys=True)
+                )
                 AuditRepository(session).add(
                     workflow_id,
                     "AGENT_FAILED",
                     stage,
-                    {"agent": agent_name, "error_code": "AGENT_FAILED"},
+                    {
+                        "agent": agent_name,
+                        "error_code": error_code,
+                        "diagnostics": diagnostics,
+                    },
                 )
             raise

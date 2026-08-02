@@ -131,7 +131,14 @@ class ControlledEditor:
             return
         ControlledEditor._atomic_write(path, content)
 
-    def apply_batch(self, workspace: Path, edits: list[StructuredEdit]) -> BatchEditResult:
+    def apply_batch(
+        self,
+        workspace: Path,
+        edits: list[StructuredEdit],
+        *,
+        allowed_paths: list[str] | None = None,
+        policy_context: dict[str, object] | None = None,
+    ) -> BatchEditResult:
         """Validate all edits, then apply them with rollback on any write failure."""
         try:
             safe_workspace = self.path_policy.validate_working_directory(workspace)
@@ -139,6 +146,10 @@ class ControlledEditor:
                 raise PathPolicyError("At least one edit is required.", "EMPTY_BATCH")
             if len({edit.relative_path for edit in edits}) != len(edits):
                 raise PathPolicyError("A batch cannot edit the same path twice.", "DUPLICATE_PATH")
+            if allowed_paths is not None:
+                effective_paths = self.path_policy.normalize_policy_paths(allowed_paths)
+                for edit in edits:
+                    self.path_policy.validate_allowed_path(edit.relative_path, effective_paths)
             prepared = [self._prepare(safe_workspace, edit) for edit in edits]
         except (PathPolicyError, OSError) as exc:
             code = exc.error_code if isinstance(exc, PathPolicyError) else "EDIT_VALIDATION_FAILED"
@@ -149,7 +160,14 @@ class ControlledEditor:
                 status=ToolStatus.BLOCKED,
                 operations=[],
                 rolled_back=False,
-                error=ToolError(code=code, message="The edit batch was blocked."),
+                error=ToolError(
+                    code=code,
+                    message="The edit batch was blocked.",
+                    details={
+                        **(policy_context or {}),
+                        **(exc.details if isinstance(exc, PathPolicyError) else {}),
+                    },
+                ),
             )
 
         results = [

@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.schemas.agents.common import AgentInput
-from app.tools.models import StructuredEdit
+from app.tools.models import EditOperation
 
 
 class RepositoryAnalysisStatus(StrEnum):
@@ -41,16 +41,32 @@ class RepositoryAnalysisOutput(BaseModel):
 
 
 class CodingAgentInput(AgentInput):
-    implementation_plan: dict[str, Any]
-    repository_analysis: dict[str, Any]
-    validation_failure: dict[str, Any] | None = None
+    implementation_plan: dict[str, object]
+    active_task: dict[str, object]
+    repository_analysis: dict[str, object]
+    validation_failure: dict[str, object] | None = None
     file_hashes: dict[str, str] = Field(default_factory=dict)
+
+
+class CodingEdit(BaseModel):
+    operation: EditOperation
+    relative_path: str
+    content: str | None
+    expected_absent: bool
+    expected_hash: str | None
+    old_text: str | None
+    replacement_text: str | None
+
+
+class ChangePlanItem(BaseModel):
+    task_id: str
+    paths: list[str]
 
 
 class CodingOutput(BaseModel):
     implementation_summary: str
-    change_plan: list[dict[str, Any]]
-    structured_edits: list[StructuredEdit]
+    change_plan: list[ChangePlanItem]
+    structured_edits: list[CodingEdit]
     tests_created_or_modified: list[str]
     migrations_created: list[str]
     assumptions: list[str]

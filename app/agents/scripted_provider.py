@@ -103,17 +103,39 @@ class ScriptedProvider:
                 f"(design iteration {retry_number + 1})."
             ),
             "components": [
-                {"name": "sample_app", "responsibility": "Deterministic application logic"},
-                {"name": "tests", "responsibility": "Behavioral verification"},
+                {
+                    "name": "sample_app",
+                    "responsibility": "Deterministic application logic",
+                    "interfaces": ["greeting()"],
+                    "dependencies": [],
+                },
+                {
+                    "name": "tests",
+                    "responsibility": "Behavioral verification",
+                    "interfaces": ["pytest"],
+                    "dependencies": ["sample_app"],
+                },
             ],
-            "api_design": [{"name": "greeting", "type": "Python function"}],
+            "api_design": [
+                {
+                    "name": "greeting",
+                    "method_or_type": "Python function",
+                    "path_or_signature": "greeting() -> str",
+                    "purpose": "Return the deterministic greeting",
+                }
+            ],
             "data_design": [],
             "control_flow": ["Caller invokes greeting", "Function returns a constant string"],
             "security_controls": ["No network, secrets, dynamic execution, or external paths"],
             "reliability_controls": ["Deterministic output", "Automated tests"],
             "observability_controls": ["Validation command results are captured as artifacts"],
             "architecture_decisions": [
-                {"decision": "Use a package function", "alternative": "HTTP service deferred"}
+                {
+                    "decision": "Use a package function",
+                    "rationale": "Keep the scripted fixture minimal",
+                    "alternatives": ["HTTP service"],
+                    "consequences": ["HTTP behavior is deferred"],
+                }
             ],
             "risks": [],
             "trade_offs": ["Minimal scope favors demonstrability over feature breadth"],
@@ -126,7 +148,13 @@ class ScriptedProvider:
     def _planning(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
-        del payload, scenario, retry_number
+        del scenario, retry_number
+        package_name = (
+            "app"
+            if payload.get("scenario_profile", {}).get("profile_id")
+            == "URL_SHORTENER_GREENFIELD"
+            else "sample_app"
+        )
         tasks = [
             {
                 "task_id": "TASK-001",
@@ -136,8 +164,8 @@ class ScriptedProvider:
                 "dependencies": [],
                 "parallel_group": None,
                 "risk_level": "LOW",
-                "expected_files": ["pyproject.toml", "sample_app/main.py"],
-                "allowed_paths": ["pyproject.toml", "sample_app", "tests"],
+                "expected_files": ["pyproject.toml", f"{package_name}/main.py"],
+                "allowed_paths": ["pyproject.toml", package_name, "tests"],
                 "entry_criteria": ["Architecture approved"],
                 "exit_criteria": ["Package imports"],
                 "validation_commands": ["RUFF_CHECK", "PYTEST"],
@@ -178,31 +206,38 @@ class ScriptedProvider:
         del scenario, retry_number
         scan = payload.get("deterministic_scan", {})
         project_files = scan.get("detected_project_files", [])
+        package_name = (
+            "app"
+            if payload.get("scenario_profile", {}).get("profile_id")
+            == "URL_SHORTENER_GREENFIELD"
+            else "sample_app"
+        )
         return {
             "repository_summary": scan.get("repository_summary", "Empty greenfield repository"),
             "detected_frameworks": ["Python"] if project_files else [],
             "project_structure": project_files,
-            "impacted_modules": ["sample_app"],
+            "impacted_modules": [package_name],
             "impacted_files": [
                 "pyproject.toml",
-                "sample_app/__init__.py",
-                "sample_app/main.py",
+                f"{package_name}/__init__.py",
+                f"{package_name}/main.py",
                 "tests/test_main.py",
             ],
             "existing_tests": scan.get("detected_test_files", []),
             "existing_migrations": scan.get("detected_migration_files", []),
             "coding_conventions": ["Python 3.11", "Ruff"],
             "compatibility_risks": [],
-            "recommended_allowed_paths": ["pyproject.toml", "sample_app", "tests"],
+            "recommended_allowed_paths": ["pyproject.toml", package_name, "tests"],
             "blocked_or_sensitive_paths": scan.get("restricted_files_found", []),
             "architecture_compatible": not scan.get("restricted_files_found"),
             "status": (
                 "ANALYSIS_COMPLETE" if not scan.get("restricted_files_found") else "BLOCKED"
             ),
         }
-
     @staticmethod
-    def _create_edits(main_result: str) -> list[dict[str, Any]]:
+    def _create_edits(
+        main_result: str, package_name: str = "sample_app"
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "operation": "CREATE",
@@ -215,19 +250,22 @@ class ScriptedProvider:
             },
             {
                 "operation": "CREATE",
-                "relative_path": "sample_app/__init__.py",
-                "content": 'from sample_app.main import greeting\n\n__all__ = ["greeting"]\n',
+                "relative_path": f"{package_name}/__init__.py",
+                "content": (
+                    f"from {package_name}.main import greeting\n\n"
+                    '__all__ = ["greeting"]\n'
+                ),
             },
             {
                 "operation": "CREATE",
-                "relative_path": "sample_app/main.py",
+                "relative_path": f"{package_name}/main.py",
                 "content": f'def greeting() -> str:\n    return "{main_result}"\n',
             },
             {
                 "operation": "CREATE",
                 "relative_path": "tests/test_main.py",
                 "content": (
-                    "from sample_app.main import greeting\n\n\n"
+                    f"from {package_name}.main import greeting\n\n\n"
                     'def test_greeting() -> None:\n    assert greeting() == "hello"\n'
                 ),
             },
@@ -239,6 +277,12 @@ class ScriptedProvider:
         scenario: ScriptedScenario,
         retry_number: int,
     ) -> dict[str, Any]:
+        package_name = (
+            "app"
+            if payload.get("scenario_profile", {}).get("profile_id")
+            == "URL_SHORTENER_GREENFIELD"
+            else "sample_app"
+        )
         if scenario == ScriptedScenario.POLICY_VIOLATION:
             edits = [
                 {
@@ -252,8 +296,10 @@ class ScriptedProvider:
             edits = [
                 {
                     "operation": "MODIFY",
-                    "relative_path": "sample_app/main.py",
-                    "expected_hash": payload.get("file_hashes", {}).get("sample_app/main.py", ""),
+                    "relative_path": f"{package_name}/main.py",
+                    "expected_hash": payload.get("file_hashes", {}).get(
+                        f"{package_name}/main.py", ""
+                    ),
                     "old_text": 'return "wrong"',
                     "replacement_text": 'return "hello"',
                 }
@@ -265,12 +311,20 @@ class ScriptedProvider:
                 if scenario == ScriptedScenario.CODING_RETRY_THEN_PASS and retry_number == 0
                 else "hello"
             )
-            edits = self._create_edits(result)
+            edits = self._create_edits(result, package_name)
             status = "READY_TO_APPLY"
+        for edit in edits:
+            is_create = edit["operation"] == "CREATE"
+            edit.setdefault("content", None)
+            edit.setdefault("expected_absent", is_create)
+            edit.setdefault("expected_hash", None)
+            edit.setdefault("old_text", None)
+            edit.setdefault("replacement_text", None)
+        active_task_id = payload.get("active_task", {}).get("task_id", "TASK-001")
         return {
             "implementation_summary": "Create or correct the deterministic sample package.",
             "change_plan": [
-                {"task_id": "TASK-001", "paths": [edit["relative_path"] for edit in edits]}
+                {"task_id": active_task_id, "paths": [edit["relative_path"] for edit in edits]}
             ],
             "structured_edits": edits,
             "tests_created_or_modified": ["tests/test_main.py"],
@@ -312,7 +366,11 @@ class ScriptedProvider:
             retry = not passed
         return {
             "acceptance_criteria_results": [
-                {"criterion": "Quality commands pass", "passed": passed}
+                {
+                    "criterion": "Quality commands pass",
+                    "passed": passed,
+                    "evidence": ["Ruff and pytest command results"],
+                }
             ],
             "tests_executed": 1,
             "tests_passed": 1 if passed else 0,

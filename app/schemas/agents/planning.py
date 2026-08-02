@@ -19,7 +19,7 @@ class PlanTask(BaseModel):
     description: str
     task_type: str
     dependencies: list[str]
-    parallel_group: str | None = None
+    parallel_group: str | None
     risk_level: RiskLevel
     expected_files: list[str]
     allowed_paths: list[str]

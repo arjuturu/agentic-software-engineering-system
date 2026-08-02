@@ -154,3 +154,27 @@ def test_oversized_content_is_blocked(
     result = editor.apply_batch(repository, [create_edit("large.txt", "x" * 257)])
 
     assert result.status == ToolStatus.BLOCKED
+
+def test_task_allowed_paths_are_enforced_by_editor(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+
+    accepted = editor.apply_batch(
+        repository,
+        [create_edit("architecture_plan.txt", "approved\n")],
+        allowed_paths=["architecture_plan.txt"],
+    )
+    blocked = editor.apply_batch(
+        repository,
+        [create_edit("other.txt", "blocked\n")],
+        allowed_paths=["architecture_plan.txt"],
+        policy_context={"task_id": "TASK-001"},
+    )
+
+    assert accepted.status == ToolStatus.SUCCESS
+    assert blocked.status == ToolStatus.BLOCKED
+    assert blocked.error is not None
+    assert blocked.error.code == "REPOSITORY_POLICY_VIOLATION"
+    assert blocked.error.details["task_id"] == "TASK-001"
+    assert not (repository / "other.txt").exists()

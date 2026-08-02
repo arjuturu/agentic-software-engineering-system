@@ -31,6 +31,8 @@ class ClarificationSubmitRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     type: str = Field(default="CLARIFICATION_RESPONSE", pattern="^CLARIFICATION_RESPONSE$")
+    workflow_id: str = Field(alias="workflowId", min_length=1, max_length=64)
+    clarification_id: str = Field(alias="clarificationId", min_length=1, max_length=64)
     state_version: int = Field(alias="stateVersion", ge=1)
     answers: list[ClarificationAnswer] = Field(min_length=1)
 

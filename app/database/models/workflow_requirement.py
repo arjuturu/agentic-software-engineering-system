@@ -16,11 +16,17 @@ class WorkflowRequirement(Base):
         UniqueConstraint(
             "workflow_id", "version", name="uq_workflow_requirements_workflow_version"
         ),
+        UniqueConstraint(
+            "workflow_id",
+            "clarification_id",
+            name="uq_workflow_requirements_workflow_clarification",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workflow_id: Mapped[str] = mapped_column(ForeignKey("workflow_runs.id"))
     version: Mapped[int] = mapped_column(Integer)
+    clarification_id: Mapped[str | None] = mapped_column(String(64))
     original_requirement: Mapped[str] = mapped_column(Text)
     normalized_requirement: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(40))

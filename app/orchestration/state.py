@@ -19,6 +19,9 @@ class EngineeringWorkflowState(TypedDict, total=False):
     architecture_design: dict[str, Any]
     architecture_version: int
     implementation_plan: dict[str, Any]
+    active_task: dict[str, Any]
+    satisfied_task_ids: list[str]
+    edit_policy_contexts: list[dict[str, Any]]
     plan_version: int
     repository_scan: dict[str, Any]
     repository_analysis: dict[str, Any]

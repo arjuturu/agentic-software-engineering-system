@@ -3,6 +3,7 @@ from langgraph.graph import END, START, StateGraph
 from app.orchestration.nodes import WorkflowNodes
 from app.orchestration.routing import (
     route_architecture_approval,
+    route_design_agent,
     route_quality,
     route_release_approval,
     route_replan,
@@ -63,7 +64,7 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("clarification_gate", "requirement_agent")
     builder.add_edge("prepare_requirement_approval", "requirement_approval_gate")
     builder.add_conditional_edges("requirement_approval_gate", route_requirement_approval)
-    builder.add_edge("design_agent", "design_validation")
+    builder.add_conditional_edges("design_agent", route_design_agent)
     builder.add_conditional_edges(
         "design_validation",
         lambda state: "safe_stop" if state.get("last_error") else "planning_agent",
@@ -85,7 +86,10 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
         "git_checkpoint",
         lambda state: "safe_stop" if state.get("last_error") else "coding_agent",
     )
-    builder.add_edge("coding_agent", "change_policy_validation")
+    builder.add_conditional_edges(
+        "coding_agent",
+        lambda state: "safe_stop" if state.get("last_error") else "change_policy_validation",
+    )
     builder.add_conditional_edges(
         "change_policy_validation",
         lambda state: (

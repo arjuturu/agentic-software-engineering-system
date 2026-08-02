@@ -14,6 +14,7 @@ Return only coding metadata and structured edits with complete CREATE content or
 hash/old-text/replacement guards for MODIFY.
 
 ## Rules
+Begin with the supplied active task and do not recreate completed design or planning artifacts.
 Use only CREATE and MODIFY. Map each change to approved task IDs. Declare dependencies and risk.
 
 ## Safety constraints

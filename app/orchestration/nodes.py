@@ -16,6 +16,14 @@ from app.orchestration.replanning import mark_for_replanning
 from app.orchestration.retries import RetryPolicy
 from app.orchestration.rollback import perform_rollback
 from app.orchestration.safe_stop import safe_stop_workflow
+from app.orchestration.tasks import (
+    dependency_status,
+    executable_plan,
+    first_executable_task,
+    satisfy_approved_design_tasks,
+    unfinished_task_ids,
+)
+from app.repositories.audit_repository import AuditRepository
 from app.repositories.workflow_repository import WorkflowRepository
 from app.scenarios.url_shortener.validators import URLShortenerValidator
 from app.schemas.agents.common import ApprovalGate
@@ -25,6 +33,7 @@ from app.services.audit_service import AuditService
 from app.tools.controlled_editor import ControlledEditor, file_sha256
 from app.tools.git_tool import GitTool
 from app.tools.models import StructuredEdit, ToolStatus
+from app.tools.path_policy import PathPolicyError
 from app.tools.repository_scanner import RepositoryScanner
 from app.tools.test_runner import TestRunner
 from app.tools.workspace_manager import WorkspaceManager
@@ -93,41 +102,73 @@ class WorkflowNodes:
 
     def prepare_clarification(self, state: dict) -> dict:
         questions = state["requirement_analysis"].get("clarification_questions", [])
-        version = state.get("state_version", 1) + 1
-        pending = {
-            "type": "CLARIFICATION",
-            "payload": {"questions": questions, "stateVersion": version},
-        }
-        self.audit.record(
-            state["workflow_id"],
-            "CLARIFICATION_REQUESTED",
-            "CLARIFICATION",
-            {"question_count": len(questions)},
-        )
+        with self.sessions.begin() as session:
+            pending_payload, created = WorkflowRepository(session).prepare_clarification(
+                state["workflow_id"],
+                state.get("requirement_version", 1),
+                state.get("state_version", 1),
+                questions,
+            )
+            if created:
+                AuditRepository(session).add(
+                    state["workflow_id"],
+                    "CLARIFICATION_REQUESTED",
+                    "CLARIFICATION",
+                    {
+                        "clarification_id": pending_payload["clarificationId"],
+                        "question_count": len(questions),
+                        "state_version": pending_payload["stateVersion"],
+                    },
+                )
+        pending = {"type": "CLARIFICATION", "payload": pending_payload}
         return {
             "pending_interaction": pending,
-            "state_version": version,
+            "state_version": pending_payload["stateVersion"],
             "workflow_status": "WAITING_FOR_CLARIFICATION",
             "current_stage": "CLARIFICATION",
         }
 
     def clarification_gate(self, state: dict) -> dict:
-        questions = state["requirement_analysis"].get("clarification_questions", [])
-        version = state["state_version"]
-        payload = interrupt(state["pending_interaction"])
+        pending = state["pending_interaction"]
+        pending_payload = pending["payload"]
+        expected_version = pending_payload["stateVersion"]
+        question_ids = [question["question_id"] for question in pending_payload["questions"]]
+        response = interrupt(
+            {
+                "type": "CLARIFICATION",
+                "workflowId": state["workflow_id"],
+                "clarificationId": pending_payload["clarificationId"],
+                "stateVersion": expected_version,
+                "questions": pending_payload["questions"],
+            }
+        )
         answers = validate_clarification_payload(
-            payload,
+            response,
             workflow_id=state["workflow_id"],
-            state_version=version,
-            question_ids=[question["question_id"] for question in questions],
+            clarification_id=pending_payload["clarificationId"],
+            state_version=expected_version,
+            question_ids=question_ids,
         )
-        self.audit.record(
-            state["workflow_id"],
-            "CLARIFICATION_SUBMITTED",
-            "CLARIFICATION",
-            {"answer_count": len(answers)},
-            actor_type="HUMAN",
-        )
+        with self.sessions.begin() as session:
+            completed_version, created = WorkflowRepository(session).complete_clarification(
+                state["workflow_id"],
+                state.get("requirement_version", 1),
+                pending_payload["clarificationId"],
+                expected_version,
+                answers,
+            )
+            if created:
+                AuditRepository(session).add(
+                    state["workflow_id"],
+                    "CLARIFICATION_SUBMITTED",
+                    "CLARIFICATION",
+                    {
+                        "clarification_id": pending_payload["clarificationId"],
+                        "answer_count": len(answers),
+                        "state_version": completed_version,
+                    },
+                    actor_type="HUMAN",
+                )
         clarification_ref = self.artifacts.write_markdown(
             state["workflow_id"],
             "CLARIFICATION_LOG",
@@ -141,7 +182,7 @@ class WorkflowNodes:
                 **state.get("artifact_references", {}),
                 "clarification_log": clarification_ref,
             },
-            "state_version": version,
+            "state_version": completed_version,
             "workflow_status": "RUNNING",
             "current_stage": "REQUIREMENTS",
         }
@@ -160,7 +201,10 @@ class WorkflowNodes:
         return self._approval_gate(state, ApprovalGate.REQUIREMENT)
 
     def design_agent(self, state: dict) -> dict:
-        output = self.design.run(state)
+        try:
+            output = self.design.run(state)
+        except Exception as exc:
+            return self._agent_failure(state, "design", "DESIGN", exc)
         version = state.get("architecture_version", 0) + 1
         self.audit.record(
             state["workflow_id"], "DESIGN_VERSION_CREATED", "DESIGN", {"version": version}
@@ -170,6 +214,7 @@ class WorkflowNodes:
             "architecture_version": version,
             "workflow_status": "DESIGNING",
             "current_stage": "DESIGN",
+            "last_error": {},
         }
 
     def design_validation(self, state: dict) -> dict:
@@ -209,7 +254,35 @@ class WorkflowNodes:
         }
 
     def architecture_approval_gate(self, state: dict) -> dict:
-        return self._approval_gate(state, ApprovalGate.ARCHITECTURE_AND_PLAN)
+        result = self._approval_gate(state, ApprovalGate.ARCHITECTURE_AND_PLAN)
+        if result.get("last_approval_action") not in {"APPROVE", "APPROVE_WITH_CONDITIONS"}:
+            return result
+        plan, satisfied_task_ids = satisfy_approved_design_tasks(
+            state.get("implementation_plan", {})
+        )
+        if satisfied_task_ids:
+            with self.sessions.begin() as session:
+                WorkflowRepository(session).mark_tasks_completed(
+                    state["workflow_id"], satisfied_task_ids
+                )
+                audits = AuditRepository(session)
+                for task_id in satisfied_task_ids:
+                    audits.add(
+                        state["workflow_id"],
+                        "TASK_SATISFIED",
+                        "ARCHITECTURE_APPROVAL",
+                        {
+                            "task_id": task_id,
+                            "source": "ARCHITECTURE_AND_PLAN_APPROVAL",
+                        },
+                    )
+        return {
+            **result,
+            "implementation_plan": plan,
+            "satisfied_task_ids": sorted(
+                set([*state.get("satisfied_task_ids", []), *satisfied_task_ids])
+            ),
+        }
 
     def workspace_setup(self, state: dict) -> dict:
         created = self.workspace.create_workspace(state["workspace_name"])
@@ -302,14 +375,47 @@ class WorkflowNodes:
             candidate = repository / name
             if candidate.is_file():
                 hashes[name] = file_sha256(candidate)
-        output = self.repository_coding.code(state, hashes)
+        plan = state.get("implementation_plan", {})
+        active_task = first_executable_task(plan)
+        if active_task is None:
+            unfinished = unfinished_task_ids(plan)
+            if unfinished:
+                return self._policy_error(
+                    "TASK_DEPENDENCY_VIOLATION",
+                    "No unfinished task has satisfied dependencies.",
+                    {
+                        "unfinished_task_ids": unfinished,
+                        "dependency_status": "BLOCKED",
+                    },
+                )
+            return self._policy_error(
+                "NO_EXECUTABLE_TASK", "No unfinished executable task is available."
+            )
+        dependencies = dependency_status(plan, active_task)
+        selection_evidence = {
+            "task_id": active_task["task_id"],
+            "task_type": active_task.get("task_type", ""),
+            "dependency_status": dependencies["status"],
+            "dependencies": dependencies["dependencies"],
+            "incomplete_dependencies": dependencies["incomplete_dependencies"],
+        }
+        self.audit.record(
+            state["workflow_id"], "CODING_TASK_SELECTED", "CODING", selection_evidence
+        )
+        coding_state = {
+            **state,
+            "implementation_plan": executable_plan(plan),
+            "active_task": active_task,
+        }
+        output = self.repository_coding.code(coding_state, hashes)
         self.audit.record(
             state["workflow_id"],
             "CHANGE_PLAN_CREATED",
             "CODING",
-            {"edit_count": len(output["structured_edits"])},
+            {"edit_count": len(output["structured_edits"]), **selection_evidence},
         )
         return {
+            "active_task": active_task,
             "code_change_plan": output,
             "workflow_status": "IMPLEMENTING",
             "current_stage": "CODING",
@@ -317,22 +423,102 @@ class WorkflowNodes:
         }
 
     def change_policy_validation(self, state: dict) -> dict:
-        allowed = [
-            path
-            for task in state["implementation_plan"].get("tasks", [])
-            for path in task.get("allowed_paths", [])
+        edits = [
+            StructuredEdit.model_validate(item)
+            for item in state["code_change_plan"]["structured_edits"]
         ]
-        for item in state["code_change_plan"]["structured_edits"]:
-            edit = StructuredEdit.model_validate(item)
-            if not any(
-                edit.relative_path == path or edit.relative_path.startswith(f"{path}/")
-                for path in allowed
-            ):
-                return self._policy_error(
-                    "REPOSITORY_POLICY_VIOLATION", "An edit path was not approved."
-                )
-        return {}
+        contexts, error = self._resolve_edit_policy_contexts(state, edits)
+        if error is not None:
+            return error
+        return {"edit_policy_contexts": contexts}
 
+    @staticmethod
+    def _policy_path_evidence(policy, paths: list[str]) -> list[str]:
+        evidence: list[str] = []
+        for path in paths:
+            try:
+                evidence.append(policy.normalize_policy_path(path))
+            except PathPolicyError:
+                safe_name = Path(path.replace("\\", "/")).name
+                if safe_name:
+                    evidence.append(safe_name)
+        return sorted(set(evidence))
+    def _resolve_edit_policy_contexts(
+        self, state: dict, edits: list[StructuredEdit]
+    ) -> tuple[list[dict[str, object]], dict | None]:
+        policy = self.editor.path_policy
+        tasks = {
+            task["task_id"]: task
+            for task in state.get("implementation_plan", {}).get("tasks", [])
+        }
+        scenario_allowed = list(state.get("scenario_profile", {}).get("allowed_paths", []))
+        change_plan = state.get("code_change_plan", {}).get("change_plan", [])
+        contexts: list[dict[str, object]] = []
+        for edit in edits:
+            task_id = None
+            normalized_path = None
+            try:
+                normalized_path = policy.normalize_relative_path(edit.relative_path)
+                for item in change_plan:
+                    mapped_paths = [
+                        policy.normalize_relative_path(path) for path in item.get("paths", [])
+                    ]
+                    if normalized_path in mapped_paths:
+                        task_id = item.get("task_id")
+                        break
+                task = tasks.get(task_id)
+                if task is None:
+                    raise PathPolicyError(
+                        "The edit is not mapped to an approved task.",
+                        "REPOSITORY_POLICY_VIOLATION",
+                        details={"policy_rule": "CHANGE_PLAN_TASK_MAPPING"},
+                    )
+                if str(task.get("status", "PLANNED")).upper() in {"COMPLETED", "SATISFIED"}:
+                    raise PathPolicyError(
+                        "The approved task is already satisfied.",
+                        "REPOSITORY_POLICY_VIOLATION",
+                        details={"policy_rule": "COMPLETED_TASK_BLOCKED"},
+                    )
+                task_allowed = list(task.get("allowed_paths", []))
+                effective = policy.resolve_effective_allowed_paths(
+                    task_allowed, scenario_allowed
+                )
+                context: dict[str, object] = {
+                    "attempted_path": normalized_path,
+                    "normalized_path": normalized_path,
+                    "task_id": task_id,
+                    "task_allowed_paths": policy.normalize_policy_paths(task_allowed),
+                    "scenario_allowed_paths": policy.normalize_policy_paths(scenario_allowed),
+                    "effective_allowed_paths": effective,
+                    "policy_rule": "EFFECTIVE_ALLOWED_PATHS",
+                }
+                policy.validate_allowed_path(edit.relative_path, effective)
+                contexts.append(context)
+            except PathPolicyError as exc:
+                safe_path = normalized_path or Path(
+                    edit.relative_path.replace("\\", "/")
+                ).name
+                task = tasks.get(task_id, {})
+                details = {
+                    "attempted_path": safe_path,
+                    "normalized_path": safe_path,
+                    "task_id": task_id or state.get("active_task", {}).get("task_id"),
+                    "task_allowed_paths": self._policy_path_evidence(
+                        policy, list(task.get("allowed_paths", []))
+                    ),
+                    "scenario_allowed_paths": self._policy_path_evidence(
+                        policy, scenario_allowed
+                    ),
+                    "effective_allowed_paths": [],
+                    "policy_rule": f"GLOBAL_WORKSPACE_SAFETY:{exc.error_code}",
+                    **exc.details,
+                }
+                return [], self._policy_error(
+                    "REPOSITORY_POLICY_VIOLATION",
+                    "An edit path was not approved.",
+                    details,
+                )
+        return contexts, None
     def prepare_high_risk_approval(self, state: dict) -> dict:
         version = state.get("state_version", 1) + 1
         pending = self.approvals.request(state["workflow_id"], "HIGH_RISK_CHANGE", version)
@@ -351,24 +537,29 @@ class WorkflowNodes:
             StructuredEdit.model_validate(item)
             for item in state["code_change_plan"]["structured_edits"]
         ]
-        allowed = [
-            path
-            for task in state["implementation_plan"].get("tasks", [])
-            for path in task.get("allowed_paths", [])
-        ]
-        for edit in edits:
-            if not any(
-                edit.relative_path == path or edit.relative_path.startswith(f"{path}/")
-                for path in allowed
-            ):
-                return self._policy_error(
-                    "REPOSITORY_POLICY_VIOLATION", "An edit path was not approved."
-                )
+        contexts = state.get("edit_policy_contexts", [])
+        if len(contexts) != len(edits):
+            contexts, error = self._resolve_edit_policy_contexts(state, edits)
+            if error is not None:
+                return error
+        allowed = sorted(
+            {
+                path
+                for context in contexts
+                for path in context.get("effective_allowed_paths", [])
+            }
+        )
         repository = Path(state["repository_path"])
-        result = self.editor.apply_batch(repository, edits)
+        result = self.editor.apply_batch(
+            repository,
+            edits,
+            allowed_paths=allowed,
+            policy_context=contexts[0] if len(contexts) == 1 else None,
+        )
         if result.status != ToolStatus.SUCCESS:
             code = result.error.code if result.error else "EDIT_FAILED"
-            return self._policy_error(code, "A controlled edit was blocked.")
+            details = result.error.details if result.error else {}
+            return self._policy_error(code, "A controlled edit was blocked.", details)
         changed = [operation.path for operation in result.operations]
         diff = self.git.get_diff(repository)
         diff_ref = self.artifacts.write_text(
@@ -627,6 +818,64 @@ class WorkflowNodes:
             "workflow_status": "RUNNING",
         }
 
+    def _agent_failure(self, state: dict, retry_key: str, stage: str, exc: Exception) -> dict:
+        current_count = state.get("retry_counts", {}).get(retry_key, 0)
+        error_code = getattr(exc, "error_code", "AGENT_FAILED")
+        category = (
+            "STRUCTURED_OUTPUT_ERROR" if error_code == "MODEL_OUTPUT_INVALID" else "UNKNOWN_FAILURE"
+        )
+        decision = self.retry_policy.decide(retry_key, current_count, category)
+        retry_count = decision.next_count if decision.allowed else current_count
+        status = "RETRYING" if decision.allowed else "FAILED"
+        diagnostics = dict(getattr(exc, "details", {}) or {})
+        last_error = {
+            "code": error_code,
+            "category": category,
+            "message": "The agent failed safely.",
+            "agent_stage": stage,
+            "retry_allowed": decision.allowed,
+            "diagnostics": diagnostics,
+        }
+        retry_counts = {**state.get("retry_counts", {}), retry_key: retry_count}
+        with self.sessions.begin() as session:
+            WorkflowRepository(session).update_state(
+                state["workflow_id"],
+                {
+                    "workflow_status": status,
+                    "current_stage": stage,
+                    "state_version": state.get("state_version", 1),
+                },
+            )
+            AuditRepository(session).add(
+                state["workflow_id"],
+                "RETRY_STARTED" if decision.allowed else "AGENT_RETRY_EXHAUSTED",
+                stage,
+                {
+                    "agent_stage": stage,
+                    "retry_count": retry_count,
+                    "error_code": error_code,
+                },
+            )
+        return {
+            "workflow_status": status,
+            "current_stage": stage,
+            "retry_counts": retry_counts,
+            "last_error": last_error,
+            "failure_history": [
+                *state.get("failure_history", []),
+                {"stage": stage, "error_code": error_code, "retry_count": retry_count},
+            ],
+        }
+
     @staticmethod
-    def _policy_error(code: str, message: str) -> dict[str, Any]:
-        return {"last_error": {"code": code, "category": "POLICY_VIOLATION", "message": message}}
+    def _policy_error(
+        code: str, message: str, details: dict[str, object] | None = None
+    ) -> dict[str, Any]:
+        error: dict[str, object] = {
+            "code": code,
+            "category": "POLICY_VIOLATION",
+            "message": message,
+        }
+        if details:
+            error["details"] = details
+        return {"last_error": error}

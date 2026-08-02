@@ -26,6 +26,15 @@ def create_workflow(
     return service.create(payload, getattr(request.state, "correlation_id", None))
 
 
+@router.post(
+    "/{workflow_id}/retry",
+    response_model=WorkflowResponse,
+    response_model_by_alias=True,
+)
+def retry_workflow(workflow_id: str, service: WorkflowServiceDependency) -> dict:
+    return service.retry(workflow_id)
+
+
 @router.get("/{workflow_id}", response_model=WorkflowResponse, response_model_by_alias=True)
 def get_workflow(workflow_id: str, service: WorkflowServiceDependency) -> dict:
     return service.get(workflow_id)

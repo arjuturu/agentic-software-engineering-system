@@ -38,3 +38,17 @@ class AuditRepository:
                 .order_by(AuditEvent.occurred_at, AuditEvent.id)
             )
         )
+
+    def exists(self, workflow_id: str, event_type: str, stage: str | None) -> bool:
+        return (
+            self.session.scalar(
+                select(AuditEvent.id)
+                .where(
+                    AuditEvent.workflow_id == workflow_id,
+                    AuditEvent.event_type == event_type,
+                    AuditEvent.stage == stage,
+                )
+                .limit(1)
+            )
+            is not None
+        )

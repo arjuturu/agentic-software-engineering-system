@@ -1,7 +1,8 @@
 import fnmatch
 import os
-from pathlib import Path
-from typing import Literal
+import re
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
 
 from app.config import Settings, get_settings
 from app.core.exceptions import ApplicationError
@@ -10,8 +11,19 @@ from app.core.exceptions import ApplicationError
 class PathPolicyError(ApplicationError):
     """Raised when a requested path violates the tool safety policy."""
 
-    def __init__(self, message: str, error_code: str = "PATH_BLOCKED") -> None:
-        super().__init__(message=message, error_code=error_code, status_code=400)
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "PATH_BLOCKED",
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=400,
+            details=details,
+        )
 
 
 class PathPolicy:
@@ -25,6 +37,7 @@ class PathPolicy:
     }
     _RESTRICTED_PATTERNS = ("*.pem", "*.key")
     _DEVICE_PREFIXES = ("\\\\.\\", "\\\\?\\globalroot", "\\device\\")
+    _WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:[\\/]")
 
     def __init__(
         self,
@@ -61,6 +74,83 @@ class PathPolicy:
         if any(lowered.startswith(prefix) for prefix in cls._DEVICE_PREFIXES):
             raise PathPolicyError("Device and system paths are not permitted.", "DEVICE_PATH")
 
+    @classmethod
+    def normalize_relative_path(cls, raw_path: str) -> str:
+        """Return one strict workspace-relative POSIX representation for an edit path."""
+        cls._validate_raw_path(raw_path)
+        portable = raw_path.replace("\\", "/")
+        if (
+            portable.startswith("/")
+            or Path(raw_path).is_absolute()
+            or cls._WINDOWS_ABSOLUTE.match(raw_path)
+        ):
+            raise PathPolicyError("Relative paths are required.", "ABSOLUTE_PATH")
+        normalized = PurePosixPath(portable).as_posix()
+        if normalized in {"", "."}:
+            raise PathPolicyError("Empty paths are not permitted.", "EMPTY_PATH")
+        return normalized
+
+    @classmethod
+    def normalize_policy_path(cls, raw_path: str) -> str:
+        """Normalize an allowlist entry; one leading slash means the workspace root."""
+        cls._validate_raw_path(raw_path)
+        portable = raw_path.replace("\\", "/")
+        if (
+            portable.startswith("//")
+            or Path(raw_path).drive
+            or cls._WINDOWS_ABSOLUTE.match(raw_path)
+        ):
+            raise PathPolicyError("Policy paths must be workspace-relative.", "ABSOLUTE_PATH")
+        portable = portable.removeprefix("/")
+        normalized = PurePosixPath(portable).as_posix()
+        if normalized in {"", "."}:
+            raise PathPolicyError("Empty paths are not permitted.", "EMPTY_PATH")
+        return normalized
+
+    @classmethod
+    def normalize_policy_paths(cls, paths: list[str]) -> list[str]:
+        return sorted({cls.normalize_policy_path(path) for path in paths})
+
+    @staticmethod
+    def _matches_allowed_path(candidate: str, allowed: str) -> bool:
+        return candidate == allowed or candidate.startswith(f"{allowed}/")
+
+    @classmethod
+    def resolve_effective_allowed_paths(
+        cls, task_allowed_paths: list[str], scenario_allowed_paths: list[str]
+    ) -> list[str]:
+        """Apply task scope and any non-empty scenario restriction deterministically."""
+        task_paths = cls.normalize_policy_paths(task_allowed_paths)
+        scenario_paths = cls.normalize_policy_paths(scenario_allowed_paths)
+        if not scenario_paths:
+            return task_paths
+        effective: set[str] = set()
+        for task_path in task_paths:
+            for scenario_path in scenario_paths:
+                if cls._matches_allowed_path(task_path, scenario_path):
+                    effective.add(task_path)
+                elif cls._matches_allowed_path(scenario_path, task_path):
+                    effective.add(scenario_path)
+        return sorted(effective)
+
+    @classmethod
+    def validate_allowed_path(cls, raw_path: str, effective_allowed_paths: list[str]) -> str:
+        normalized = cls.normalize_relative_path(raw_path)
+        if not any(
+            cls._matches_allowed_path(normalized, allowed)
+            for allowed in effective_allowed_paths
+        ):
+            raise PathPolicyError(
+                "The edit path is not approved.",
+                "REPOSITORY_POLICY_VIOLATION",
+                details={
+                    "attempted_path": normalized,
+                    "normalized_path": normalized,
+                    "effective_allowed_paths": effective_allowed_paths,
+                    "policy_rule": "EFFECTIVE_ALLOWED_PATHS",
+                },
+            )
+        return normalized
     def _canonical_under(self, path: Path, roots: tuple[Path, ...] | None = None) -> Path:
         self._validate_raw_path(str(path))
         try:
@@ -89,7 +179,7 @@ class PathPolicy:
     def resolve_workspace_path(self, relative_path: str) -> Path:
         """Resolve a workspace-relative path without allowing escape or secrets."""
         self._validate_raw_path(relative_path)
-        relative = Path(relative_path)
+        relative = Path(self.normalize_relative_path(relative_path))
         if relative.is_absolute():
             raise PathPolicyError("Workspace paths must be relative.", "ABSOLUTE_PATH")
         candidate = self._canonical_under(self.workspace_root / relative, (self.workspace_root,))
@@ -100,7 +190,7 @@ class PathPolicy:
     def resolve_artifact_path(self, relative_path: str) -> Path:
         """Resolve an artifact-relative path without allowing escape or secrets."""
         self._validate_raw_path(relative_path)
-        relative = Path(relative_path)
+        relative = Path(self.normalize_relative_path(relative_path))
         if relative.is_absolute():
             raise PathPolicyError("Artifact paths must be relative.", "ABSOLUTE_PATH")
         candidate = self._canonical_under(self.artifact_root / relative, (self.artifact_root,))

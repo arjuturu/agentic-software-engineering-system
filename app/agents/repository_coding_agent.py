@@ -38,6 +38,7 @@ class RepositoryCodingAgent:
                 "scenario_profile": state.get("scenario_profile", {}),
                 "retry_number": retry,
                 "implementation_plan": state["implementation_plan"],
+                "active_task": state.get("active_task", {}),
                 "repository_analysis": state["repository_analysis"],
                 "validation_failure": state.get("validation_result"),
                 "file_hashes": file_hashes,

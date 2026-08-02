@@ -10,6 +10,13 @@ def route_requirement(state: EngineeringWorkflowState) -> str:
     }.get(status, "safe_stop")
 
 
+def route_design_agent(state: EngineeringWorkflowState) -> str:
+    error = state.get("last_error", {})
+    if error:
+        return "design_agent" if error.get("retry_allowed") else "safe_stop"
+    return "design_validation"
+
+
 def route_requirement_approval(state: EngineeringWorkflowState) -> str:
     return {
         "APPROVE": "design_agent",
