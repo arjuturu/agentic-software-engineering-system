@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,10 +31,33 @@ class Settings(BaseSettings):
     ENABLE_EXTERNAL_NETWORK: bool = False
     LOG_LEVEL: str = "INFO"
 
+    LLM_MODE: Literal["SCRIPTED", "OPENAI"] = "SCRIPTED"
+    OPENAI_API_KEY: SecretStr | None = None
+    OPENAI_MODEL: str = ""
+    OPENAI_TEMPERATURE: float = Field(default=0, ge=0, le=2)
+    REQUIREMENT_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
+    DESIGN_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
+    PLANNING_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
+    CODING_AGENT_MAX_RETRIES: int = Field(default=2, ge=0)
+    VALIDATION_AGENT_MAX_RETRIES: int = Field(default=1, ge=0)
+    DEFAULT_WORKFLOW_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
+
     @field_validator("WORKSPACE_ROOT", "ARTIFACT_ROOT", mode="after")
     @classmethod
     def resolve_directory(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @model_validator(mode="after")
+    def validate_model_provider(self) -> "Settings":
+        if self.LLM_MODE == "OPENAI":
+            api_key = (
+                self.OPENAI_API_KEY.get_secret_value().strip()
+                if self.OPENAI_API_KEY is not None
+                else ""
+            )
+            if not api_key or not self.OPENAI_MODEL.strip():
+                raise ValueError("OPENAI mode requires an API key and model.")
+        return self
 
 
 @lru_cache

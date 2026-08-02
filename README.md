@@ -148,3 +148,87 @@ Phase 2 provides deterministic tools but no workflow execution or autonomous beh
 Agents and LangGraph orchestration begin in Phase 3. Gradio, OpenAI integration,
 URL-shortener business APIs, API scanning,
 remote Git workflows and deployment will be implemented in later phases.
+
+## Phase 3: stateful workflow and human governance
+
+Phase 3 coordinates Requirement, Design, Planning, Repository/Coding, Validation, and
+Documentation/Release agents through a deterministic LangGraph `StateGraph`. Agents
+produce bounded Pydantic outputs; they do not route the workflow, approve their own
+work, or receive raw filesystem or shell access. Phase 2 path, edit, command, and
+local-only Git policies remain the enforcement boundary.
+
+The control plane is this application. Each generated generic target application is an
+independent local Git repository beneath `workspace/`. Phase 3 does not implement URL
+shortener business functionality; Phase 4 will specialize the greenfield workflow for
+that purpose.
+
+### Provider modes and checkpointing
+
+`LLM_MODE=SCRIPTED` is the default and is deterministic, offline, and suitable for all
+tests. `LLM_MODE=OPENAI` uses structured `ChatOpenAI` output and requires both
+`OPENAI_API_KEY` and `OPENAI_MODEL` in the uncommitted `.env`; startup fails safely when
+either is missing. Keys are never placed in graph state or artifacts.
+
+Application metadata remains in `data/application.db`. Durable LangGraph checkpoints
+use the separate `data/langgraph_checkpoints.db`. The synchronous SQLite connection is
+owned by the FastAPI lifespan and closed at shutdown. Clarification, requirement,
+architecture/plan, and release decisions pause with `interrupt()` and resume with the
+same thread ID using `Command(resume=...)`.
+
+Failure handling includes bounded coding retries, requirement/design/plan replanning,
+baseline-commit rollback, and terminal safe stop for policy or security violations.
+Validation and preliminary documentation execute as parallel graph branches and join
+before the release recommendation.
+
+### Run and verify Phase 3
+
+~~~powershell
+python -m pip install -r requirements.txt
+alembic upgrade head
+python -m uvicorn app.main:app --reload
+python -m ruff check .
+python -m pytest -q
+python -m pytest tests/integration/test_phase3_end_to_end.py -v
+~~~
+
+Swagger is available at `http://127.0.0.1:8000/docs` and includes workflow, approval,
+artifact, and audit APIs.
+
+### Scripted workflow example
+
+~~~powershell
+$workflow = Invoke-RestMethod -Method Post -Uri 'http://localhost:8000/api/v1/workflows' -ContentType 'application/json' -Body (@{
+  scenarioType = 'GREENFIELD'
+  requirement = 'Create a small Python service with tests.'
+  workspaceName = 'sample-greenfield'
+  scriptedScenario = 'HAPPY_PATH'
+} | ConvertTo-Json)
+
+$approval = $workflow.pendingApproval
+$workflow = Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/v1/workflows/$($workflow.workflowId)/approvals/$($approval.approvalId)" -ContentType 'application/json' -Body (@{
+  gateType = $approval.gateType
+  stateVersion = $approval.stateVersion
+  action = 'APPROVE'
+  comments = 'Proceed'
+  conditions = @()
+  decidedBy = 'local-user'
+} | ConvertTo-Json)
+~~~
+
+Repeat the approval request for the combined architecture/plan gate and the release
+gate. Clarification workflows resume through
+`POST /api/v1/workflows/{workflow_id}/clarifications`. Inspect progress and evidence at:
+
+~~~text
+GET /api/v1/workflows/{workflow_id}
+GET /api/v1/workflows/{workflow_id}/artifacts
+GET /api/v1/workflows/{workflow_id}/artifacts/{file_name}
+GET /api/v1/workflows/{workflow_id}/audit
+~~~
+
+### Phase 3 limitations
+
+The OpenAI provider has no web, file-search, code-interpreter, or arbitrary tool access.
+All Git work remains local; there are no remotes, pull requests, deployment flows, or
+Gradio UI. The generated project is intentionally a tiny generic Python fixture, not a
+production application or URL shortener.

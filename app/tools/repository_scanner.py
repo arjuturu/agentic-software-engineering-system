@@ -87,6 +87,8 @@ class RepositoryScanner:
             for path in paths:
                 relative = path.relative_to(repository)
                 relative_text = relative.as_posix()
+                if relative.parts and relative.parts[0].lower() == ".git":
+                    continue
                 if path.is_symlink():
                     skipped.append(relative_text)
                     continue

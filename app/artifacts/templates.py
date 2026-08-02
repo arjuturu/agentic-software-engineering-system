@@ -1,0 +1,17 @@
+ARTIFACT_TITLES = {
+    "01-requirement-analysis.md": "Requirement Analysis",
+    "02-clarification-log.md": "Clarification Log",
+    "03-approved-requirements.md": "Approved Requirements",
+    "04-architecture-design.md": "Architecture Design",
+    "05-implementation-plan.md": "Implementation Plan",
+    "06-repository-impact-analysis.md": "Repository Impact Analysis",
+    "07-code-change-plan.md": "Code Change Plan",
+    "08-implementation-summary.md": "Implementation Summary",
+    "09-test-report.md": "Test Report",
+    "10-quality-security-review.md": "Quality and Security Review",
+    "11-pr-summary.md": "Local Change Summary",
+    "12-production-readiness-report.md": "Production Readiness Report",
+    "13-final-engineering-summary.md": "Final Engineering Summary",
+    "rollback-report.md": "Rollback Report",
+    "safe-stop-report.md": "Safe Stop Report",
+}

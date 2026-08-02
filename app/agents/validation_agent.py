@@ -1,0 +1,27 @@
+from app.agents.runner import AgentRunner
+from app.schemas.agents.validation import ValidationOutput
+
+
+class ValidationAgent:
+    def __init__(self, runner: AgentRunner) -> None:
+        self.runner = runner
+
+    def run(self, state: dict, command_results: list[dict]) -> dict:
+        retry = state.get("retry_counts", {}).get("coding", 0)
+        return self.runner.run(
+            workflow_id=state["workflow_id"],
+            agent_name="VALIDATION_AGENT",
+            stage="VALIDATION",
+            prompt_name="validation-agent.md",
+            input_payload={
+                "workflow_id": state["workflow_id"],
+                "scenario_type": state["scenario_type"],
+                "scripted_scenario": state["scripted_scenario"],
+                "retry_number": retry,
+                "command_results": command_results,
+                "implementation_result": state["implementation_result"],
+            },
+            output_model=ValidationOutput,
+            markdown_name="09-test-report.md",
+            attempt=retry + 1,
+        )
