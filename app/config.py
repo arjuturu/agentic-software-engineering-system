@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     SHORT_CODE_LENGTH: int = Field(default=7, gt=0)
     MAX_AGENT_RETRIES: int = 2
     MAX_COMMAND_SECONDS: int = 120
+    MAX_SCAN_FILES: int = Field(default=2000, gt=0)
+    MAX_SCAN_FILE_BYTES: int = Field(default=1048576, gt=0)
+    MAX_EDIT_FILE_BYTES: int = Field(default=1048576, gt=0)
+    MAX_COMMAND_OUTPUT_BYTES: int = Field(default=1048576, gt=0)
     ENABLE_GIT_WRITES: bool = True
     ENABLE_EXTERNAL_NETWORK: bool = False
     LOG_LEVEL: str = "INFO"
