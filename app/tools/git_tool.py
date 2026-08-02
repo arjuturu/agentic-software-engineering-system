@@ -283,6 +283,30 @@ class GitTool:
             logger.exception("tool=git operation=diff status=FAILED")
             return self._blocked(operation, "GIT_UNAVAILABLE", "The diff could not be generated.")
 
+    def get_remotes(self, path: Path) -> GitOperationResult:
+        """List local remote names without contacting a network."""
+        operation = "remotes"
+        repository = self._repository(path, operation)
+        if isinstance(repository, GitOperationResult):
+            return repository
+        try:
+            return self._result(operation, repository, self._raw(repository, ["remote"]))
+        except (OSError, subprocess.SubprocessError):
+            logger.exception("tool=git operation=remotes status=FAILED")
+            return self._blocked(operation, "GIT_UNAVAILABLE", "Git remotes could not be read.")
+
+    def list_tracked_files(self, path: Path) -> GitOperationResult:
+        """List tracked paths without reading repository configuration."""
+        operation = "tracked_files"
+        repository = self._repository(path, operation)
+        if isinstance(repository, GitOperationResult):
+            return repository
+        try:
+            return self._result(operation, repository, self._raw(repository, ["ls-files"]))
+        except (OSError, subprocess.SubprocessError):
+            logger.exception("tool=git operation=tracked_files status=FAILED")
+            return self._blocked(operation, "GIT_UNAVAILABLE", "Tracked files could not be read.")
+
     def restore_to_commit(self, path: Path, commit_id: str) -> GitOperationResult:
         """Restore tracked index and worktree files from a verified local commit."""
         operation = "restore_to_commit"

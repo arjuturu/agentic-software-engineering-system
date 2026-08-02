@@ -49,6 +49,19 @@ class CommandRunner:
                 "base",
             ],
             CommandId.PYTHON_VERSION: [sys.executable, "--version"],
+            CommandId.TARGET_IMPORT_CHECK: [
+                sys.executable,
+                "-c",
+                "from app.main import app; print(app.title)",
+            ],
+            CommandId.TARGET_OPENAPI_CHECK: [
+                sys.executable,
+                "-c",
+                (
+                    "import json; from app.main import app; "
+                    "print(json.dumps(app.openapi(), sort_keys=True))"
+                ),
+            ],
         }
         return list(commands[command_id])
 

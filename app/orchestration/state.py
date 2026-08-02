@@ -6,6 +6,8 @@ class EngineeringWorkflowState(TypedDict, total=False):
     thread_id: str
     correlation_id: str
     scenario_type: str
+    scenario_profile: dict[str, Any]
+    execution_mode: str
     scripted_scenario: str
     workspace_name: str
     repository_path: str
@@ -28,6 +30,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     changed_files: list[str]
     git_diff_artifact: str
     validation_result: dict[str, Any]
+    target_contract_evidence: dict[str, Any]
     documentation_draft: dict[str, Any]
     release_package: dict[str, Any]
     pending_interaction: dict[str, Any]

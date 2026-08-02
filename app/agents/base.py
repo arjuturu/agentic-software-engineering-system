@@ -12,6 +12,8 @@ _ALLOWED_PROMPTS = {
     "validation-agent.md",
     "failure-classification-agent.md",
     "documentation-release-agent.md",
+    "scenarios/url-shortener-context.md",
+    "scenarios/url-shortener-validation.md",
 }
 
 
@@ -26,7 +28,6 @@ class PromptLoader:
         if (
             not file_name
             or Path(file_name).is_absolute()
-            or Path(file_name).name != file_name
             or file_name not in _ALLOWED_PROMPTS
             or Path(file_name).suffix.lower() != ".md"
         ):

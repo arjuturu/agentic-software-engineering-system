@@ -44,6 +44,7 @@ class WorkflowResponse(BaseModel):
     current_stage: str = Field(alias="currentStage")
     state_version: int = Field(alias="stateVersion")
     workspace_path: str = Field(alias="workspacePath")
+    scenario_profile: dict[str, Any] = Field(default_factory=dict, alias="scenarioProfile")
     requirement_version: int = Field(default=1, alias="requirementVersion")
     architecture_version: int = Field(default=0, alias="architectureVersion")
     plan_version: int = Field(default=0, alias="planVersion")

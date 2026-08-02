@@ -16,6 +16,7 @@ class DesignAgent:
                 "workflow_id": state["workflow_id"],
                 "scenario_type": state["scenario_type"],
                 "scripted_scenario": state["scripted_scenario"],
+                "scenario_profile": state.get("scenario_profile", {}),
                 "retry_number": state.get("retry_counts", {}).get("design", 0),
                 "approved_requirement": state["approved_requirement"],
             },

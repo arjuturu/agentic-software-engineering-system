@@ -26,10 +26,13 @@ from app.orchestration.nodes import WorkflowNodes
 from app.orchestration.retries import RetryPolicy
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.workflow_repository import WorkflowRepository
+from app.scenarios.resolver import resolve_scenario_profile
+from app.scenarios.url_shortener.validators import URLShortenerValidator
 from app.schemas.workflows import WorkflowCreateRequest
 from app.services.approval_service import ApprovalService
 from app.services.artifact_service import ArtifactService
 from app.services.audit_service import AuditService
+from app.tools.alembic_runner import AlembicRunner
 from app.tools.command_runner import CommandRunner
 from app.tools.controlled_editor import ControlledEditor
 from app.tools.git_tool import GitTool
@@ -67,6 +70,16 @@ def create_workflow_runtime(settings: Settings, sessions: sessionmaker[Session])
         artifact_service,
     )
     command_runner = CommandRunner(policy, settings)
+    test_runner = TestRunner(command_runner)
+    git_tool = GitTool(policy, settings)
+    target_validator = URLShortenerValidator(
+        policy,
+        RepositoryScanner(policy, settings),
+        command_runner,
+        test_runner,
+        AlembicRunner(command_runner),
+        git_tool,
+    )
     nodes = WorkflowNodes(
         sessions=sessions,
         requirement=RequirementAgent(runner),
@@ -82,8 +95,9 @@ def create_workflow_runtime(settings: Settings, sessions: sessionmaker[Session])
         workspace=WorkspaceManager(policy),
         scanner=RepositoryScanner(policy, settings),
         editor=ControlledEditor(policy, settings),
-        git=GitTool(policy, settings),
-        tests=TestRunner(command_runner),
+        git=git_tool,
+        tests=test_runner,
+        target_validator=target_validator,
     )
     checkpoint = CheckpointManager(settings)
     return WorkflowRuntime(
@@ -113,13 +127,17 @@ class WorkflowService:
             )
         workflow_id = new_workflow_id()
         thread_id = new_thread_id()
+        active_correlation_id = correlation_id or new_correlation_id()
+        scenario_profile = resolve_scenario_profile(
+            request.scenario_type.value, request.requirement
+        )
         now = utc_now().isoformat()
         with self.runtime.sessions.begin() as session:
             WorkflowRepository(session).add(
                 WorkflowRun(
                     id=workflow_id,
                     thread_id=thread_id,
-                    correlation_id=correlation_id or new_correlation_id(),
+                    correlation_id=active_correlation_id,
                     scenario_type=request.scenario_type.value,
                     repository_path=request.workspace_name,
                     status="CREATED",
@@ -131,13 +149,18 @@ class WorkflowService:
                 workflow_id,
                 "WORKFLOW_CREATED",
                 "CREATED",
-                {"scenario_type": request.scenario_type.value},
+                {
+                    "scenario_type": request.scenario_type.value,
+                    "scenario_profile": scenario_profile["profile_id"],
+                },
             )
         state = {
             "workflow_id": workflow_id,
             "thread_id": thread_id,
-            "correlation_id": correlation_id or new_correlation_id(),
+            "correlation_id": active_correlation_id,
             "scenario_type": request.scenario_type.value,
+            "scenario_profile": scenario_profile,
+            "execution_mode": self.runtime.settings.LLM_MODE,
             "scripted_scenario": request.scripted_scenario.value,
             "workspace_name": request.workspace_name,
             "repository_path": "",
@@ -221,6 +244,7 @@ class WorkflowService:
             "currentStage": state.get("current_stage", item.current_stage),
             "stateVersion": state.get("state_version", item.state_version),
             "workspacePath": state.get("workspace_name", item.repository_path),
+            "scenarioProfile": state.get("scenario_profile", {}),
             "requirementVersion": state.get("requirement_version", 1),
             "architectureVersion": state.get("architecture_version", 0),
             "planVersion": state.get("plan_version", 0),

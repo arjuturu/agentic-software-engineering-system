@@ -9,6 +9,7 @@ from app.agents.base import PromptLoader
 from app.agents.provider import StructuredModelProvider
 from app.repositories.agent_execution_repository import AgentExecutionRepository
 from app.repositories.audit_repository import AuditRepository
+from app.scenarios.url_shortener.context import scenario_prompt_names
 from app.services.artifact_service import ArtifactService
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,12 @@ class AgentRunner:
         self.prompt_loader = prompt_loader
         self.sessions = sessions
         self.artifacts = artifacts
+
+    def _system_prompt(self, prompt_name: str, profile: dict, agent_name: str) -> str:
+        prompts = [self.prompt_loader.load(prompt_name)]
+        for scenario_prompt in scenario_prompt_names(profile.get("profile_id", ""), agent_name):
+            prompts.append(self.prompt_loader.load(scenario_prompt))
+        return "\n\n".join(prompts)
 
     def run(
         self,
@@ -50,7 +57,11 @@ class AgentRunner:
         try:
             output = self.provider.generate(
                 agent_name=agent_name,
-                system_prompt=self.prompt_loader.load(prompt_name),
+                system_prompt=self._system_prompt(
+                    prompt_name,
+                    input_payload.get("scenario_profile", {}),
+                    agent_name,
+                ),
                 input_payload=input_payload,
                 output_model=output_model,
             )

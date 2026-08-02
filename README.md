@@ -157,10 +157,10 @@ produce bounded Pydantic outputs; they do not route the workflow, approve their 
 work, or receive raw filesystem or shell access. Phase 2 path, edit, command, and
 local-only Git policies remain the enforcement boundary.
 
-The control plane is this application. Each generated generic target application is an
-independent local Git repository beneath `workspace/`. Phase 3 does not implement URL
-shortener business functionality; Phase 4 will specialize the greenfield workflow for
-that purpose.
+The control plane is this application. Generated targets are independent local Git repositories
+beneath `workspace/`. The control-plane repository does not itself implement URL-shortener business
+APIs. Phase 4 specializes the governed greenfield workflow so agents can create that functionality
+inside an independent target workspace.
 
 ### Provider modes and checkpointing
 
@@ -232,3 +232,59 @@ The OpenAI provider has no web, file-search, code-interpreter, or arbitrary tool
 All Git work remains local; there are no remotes, pull requests, deployment flows, or
 Gradio UI. The generated project is intentionally a tiny generic Python fixture, not a
 production application or URL shortener.
+## Phase 4 — Stateful URL-shortener specialization
+
+Phase 4 adds a focused `URL_SHORTENER_GREENFIELD` scenario profile without changing the six-agent
+LangGraph topology. The deterministic resolver requires a greenfield request plus strong
+URL-shortening and supporting capability evidence; weak keyword matches remain `GENERIC`. The
+resolved, JSON-serializable profile is stored in workflow state and supplied to every agent.
+
+The profile contains constraints and validation rules only. It does not contain target source
+bodies, a hidden implementation template, or a forced exact package tree. A generated target must
+remain an independent local repository beneath `workspace/`, must not import control-plane modules,
+must not configure a remote, and must not commit SQLite database files.
+
+Deterministic target validation checks the required HTTP methods and routes from isolated OpenAPI
+evidence, target importability, control-plane independence, restricted files, Git remotes, tracked
+database files, Alembic configuration and the upgrade/downgrade/re-upgrade cycle, Ruff, and pytest.
+Agent prose cannot override failed deterministic evidence.
+
+### Phase 4 demos
+
+The offline demo validates platform orchestration only. It deliberately continues to use the tiny
+generic scripted fixture and writes `SCRIPTED_PLATFORM_TEST_DOUBLE` contract evidence; it is not a
+production URL-shortener implementation or a substitute for the real OpenAI run.
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1
+~~~
+
+The genuine acceptance script requires `LLM_MODE=OPENAI`, `OPENAI_API_KEY`, and `OPENAI_MODEL` in the
+process environment. It checks presence without printing the key and prompts a human at every
+approval gate—approval is never implicit or automatic.
+
+~~~powershell
+$env:LLM_MODE = 'OPENAI'
+$env:OPENAI_API_KEY = '<set-locally>'
+$env:OPENAI_MODEL = '<supported-model>'
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_openai_demo.ps1
+~~~
+
+The OpenAI run may incur provider charges and is intentionally not executed by the automated test
+suite. `OPENAI_MAX_OUTPUT_TOKENS` defaults to `2500` to bound each structured response.
+
+### Phase 4 verification
+
+~~~powershell
+python -m ruff check .
+python -m pytest -q
+python -m pytest tests/unit/test_scenario_resolver.py tests/unit/test_url_shortener_profile.py tests/unit/test_url_shortener_contract.py tests/unit/test_no_embedded_template.py -q
+python -m pytest tests/integration/test_phase4_scripted_workflow.py tests/integration/test_url_shortener_contract_validation.py tests/integration/test_target_project_independence.py tests/integration/test_no_precreated_target.py -q
+~~~
+
+Current acceptance status:
+
+~~~text
+PHASE 4 PLATFORM SUPPORT — PASS
+REAL SIX-AGENT OPENAI GREENFIELD RUN — PENDING USER EXECUTION
+~~~

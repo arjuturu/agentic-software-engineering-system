@@ -17,6 +17,7 @@ class ValidationAgent:
                 "workflow_id": state["workflow_id"],
                 "scenario_type": state["scenario_type"],
                 "scripted_scenario": state["scripted_scenario"],
+                "scenario_profile": state.get("scenario_profile", {}),
                 "retry_number": retry,
                 "command_results": command_results,
                 "implementation_result": state["implementation_result"],

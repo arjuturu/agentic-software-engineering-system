@@ -26,6 +26,7 @@ class DocumentationReleaseAgent:
                 "workflow_id": state["workflow_id"],
                 "scenario_type": state["scenario_type"],
                 "scripted_scenario": state["scripted_scenario"],
+                "scenario_profile": state.get("scenario_profile", {}),
                 "retry_number": 0,
                 "validation_result": state["validation_result"],
                 "documentation_draft": state["documentation_draft"],

@@ -17,6 +17,7 @@ from app.orchestration.retries import RetryPolicy
 from app.orchestration.rollback import perform_rollback
 from app.orchestration.safe_stop import safe_stop_workflow
 from app.repositories.workflow_repository import WorkflowRepository
+from app.scenarios.url_shortener.validators import URLShortenerValidator
 from app.schemas.agents.common import ApprovalGate
 from app.services.approval_service import ApprovalService
 from app.services.artifact_service import ArtifactService
@@ -49,6 +50,7 @@ class WorkflowNodes:
         editor: ControlledEditor,
         git: GitTool,
         tests: TestRunner,
+        target_validator: URLShortenerValidator,
     ) -> None:
         self.sessions = sessions
         self.requirement = requirement
@@ -66,6 +68,7 @@ class WorkflowNodes:
         self.editor = editor
         self.git = git
         self.tests = tests
+        self.target_validator = target_validator
 
     def start(self, state: dict) -> dict:
         self.audit.record(state["workflow_id"], "WORKFLOW_STARTED", "START")
@@ -424,6 +427,35 @@ class WorkflowNodes:
         results = [suite.ruff.model_dump(mode="json")]
         if suite.pytest is not None:
             results.append(suite.pytest.model_dump(mode="json"))
+        contract_payload = {
+            "profile_id": state.get("scenario_profile", {}).get("profile_id", "GENERIC"),
+            "status": "NOT_APPLICABLE",
+            "reason": "No specialized target contract applies.",
+        }
+        if contract_payload["profile_id"] == "URL_SHORTENER_GREENFIELD":
+            if state.get("execution_mode") == "OPENAI":
+                contract_payload = self.target_validator.validate(
+                    Path(state["repository_path"])
+                ).model_dump(mode="json")
+                results.append(
+                    {
+                        "command_id": "URL_SHORTENER_CONTRACT",
+                        "status": ("SUCCESS" if contract_payload["status"] == "PASS" else "FAILED"),
+                        "evidence": contract_payload,
+                    }
+                )
+            else:
+                contract_payload = {
+                    "profile_id": "URL_SHORTENER_GREENFIELD",
+                    "status": "NOT_EXECUTED",
+                    "reason": "SCRIPTED_PLATFORM_TEST_DOUBLE",
+                }
+        contract_ref = self.artifacts.write_json(
+            state["workflow_id"],
+            "TARGET_CONTRACT_EVIDENCE",
+            "09-target-contract-evidence.json",
+            contract_payload,
+        )
         output = self.validation.run(state, results)
         self.audit.record(
             state["workflow_id"],
@@ -439,10 +471,12 @@ class WorkflowNodes:
         )
         return {
             "validation_result": output,
+            "target_contract_evidence": contract_payload,
             "validation_branch_complete": True,
             "artifact_references": {
                 **state.get("artifact_references", {}),
                 "quality_review": quality_ref,
+                "target_contract_evidence": contract_ref,
             },
         }
 

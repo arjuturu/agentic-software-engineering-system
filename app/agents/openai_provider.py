@@ -27,6 +27,7 @@ class OpenAIProvider:
             api_key=settings.OPENAI_API_KEY,
             timeout=min(settings.DEFAULT_WORKFLOW_TIMEOUT_SECONDS, 120),
             max_retries=1,
+            max_tokens=settings.OPENAI_MAX_OUTPUT_TOKENS,
         )
 
     def generate(
