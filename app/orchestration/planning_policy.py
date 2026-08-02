@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.schemas.agents.planning import PlanTaskType
 from app.tools.path_policy import PathPolicy, PathPolicyError
 
 
@@ -11,15 +12,6 @@ class ScenarioPathPolicyMode(StrEnum):
     DENY_ALL = "DENY_ALL"
 
 
-_EXECUTABLE_TASK_TYPES = {
-    "setup",
-    "implementation",
-    "testing",
-    "test",
-    "validation",
-    "migration",
-    "documentation",
-}
 _WILDCARD_CHARACTERS = frozenset("*?[")
 _PRE_SATISFIED_CAPABILITIES = [
     "ARCHITECTURE_ARTIFACT_GENERATED",
@@ -191,12 +183,20 @@ class PlanValidator:
         errors: list[dict[str, object]],
     ) -> None:
         task_id = str(task.get("task_id", ""))
-        task_type = str(task.get("task_type", "")).strip().casefold()
-        if task_type not in _EXECUTABLE_TASK_TYPES:
+        try:
+            task_type = PlanTaskType(str(task.get("task_type", "")))
+        except ValueError:
+            errors.append(
+                self._task_error(
+                    task_id,
+                    "TASK_TYPE_UNSUPPORTED",
+                    "Task type must be one of the supported PlanTaskType values.",
+                )
+            )
             return
         expected_files = list(task.get("expected_files", []))
         allowed_paths = list(task.get("allowed_paths", []))
-        validation_only = task_type == "validation" and not expected_files
+        validation_only = task_type == PlanTaskType.VALIDATION and not expected_files
         if not allowed_paths and not validation_only:
             errors.append(
                 self._task_error(
@@ -340,7 +340,10 @@ class PlanValidator:
         tasks_by_id = {str(task.get("task_id", "")): task for task in tasks}
         for task in tasks:
             task_id = str(task.get("task_id", ""))
-            task_type = str(task.get("task_type", "")).strip().casefold()
+            try:
+                task_type = PlanTaskType(str(task.get("task_type", "")))
+            except ValueError:
+                task_type = None
             text = self._task_search_text(task)
             regenerates_upstream = self._regenerates_upstream_artifact(text)
             executes_gate = self._executes_current_approval_gate(text)
@@ -362,7 +365,7 @@ class PlanValidator:
                         "The current approval gate is an orchestration prerequisite, not a task.",
                     )
                 )
-            if task_type in {"setup", "implementation"} and not (
+            if task_type in {PlanTaskType.SETUP, PlanTaskType.IMPLEMENTATION} and not (
                 regenerates_upstream or executes_gate
             ):
                 executable_application.append(task_id)
@@ -387,21 +390,29 @@ class PlanValidator:
         ordered_application = [
             task_id
             for task_id in execution_order
-            if str(tasks_by_id.get(str(task_id), {}).get("task_type", "")).casefold()
-            in _EXECUTABLE_TASK_TYPES
+            if self._supported_task_type(
+                tasks_by_id.get(str(task_id), {}).get("task_type", "")
+            )
             and task_id not in duplicated_governance
         ]
         if ordered_application:
-            first_type = str(
+            first_type = self._supported_task_type(
                 tasks_by_id.get(str(ordered_application[0]), {}).get("task_type", "")
-            ).casefold()
-            if first_type not in {"setup", "implementation"}:
+            )
+            if first_type not in {PlanTaskType.SETUP, PlanTaskType.IMPLEMENTATION}:
                 errors.append(
                     self._error(
                         "POST_APPROVAL_TASK_ORDER_INVALID",
                         "Post-approval execution must begin with setup or implementation.",
                     )
                 )
+
+    @staticmethod
+    def _supported_task_type(value: object) -> PlanTaskType | None:
+        try:
+            return PlanTaskType(str(value))
+        except ValueError:
+            return None
 
     @staticmethod
     def _task_search_text(task: dict) -> str:

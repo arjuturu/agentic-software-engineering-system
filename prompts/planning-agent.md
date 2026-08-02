@@ -16,6 +16,9 @@ and acceptance-criteria mapping.
 
 ## Rules
 Use approved command IDs only. Dependencies must be acyclic and execution order complete.
+Use only these exact task types: `SETUP`, `IMPLEMENTATION`, `INTEGRATION`, `MIGRATION`, `TESTING`,
+`DOCUMENTATION`, and `VALIDATION`. Do not invent synonyms such as `DEPENDENCY_SETUP`,
+`ACCEPTANCE_TESTING`, or `FINAL_VALIDATION`.
 Treat every task ID as an exact opaque string. Execution order must contain every generated task
 ID exactly once, and dependencies, critical path, high-risk tasks, and parallel groups may only
 reference those exact IDs. Never silently rewrite an identifier.

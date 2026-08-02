@@ -1,8 +1,12 @@
+import pytest
+from pydantic import ValidationError
+
 from app.agents.planning_agent import PlanningAgent
 from app.orchestration.planning_policy import (
     PlanValidator,
     normalize_scenario_path_policy,
 )
+from app.schemas.agents.planning import PlanTask
 
 
 def _task(**updates: object) -> dict:
@@ -10,7 +14,7 @@ def _task(**updates: object) -> dict:
         "task_id": "TASK-001",
         "title": "Implement application",
         "description": "Create the application entry point.",
-        "task_type": "implementation",
+        "task_type": "IMPLEMENTATION",
         "dependencies": [],
         "expected_files": ["app/main.py"],
         "allowed_paths": ["app"],
@@ -90,7 +94,7 @@ def test_code_changing_tasks_require_explicit_paths() -> None:
 def test_validation_only_task_may_have_no_paths() -> None:
     validation_task = _task(
         task_id="TASK-002",
-        task_type="validation",
+        task_type="VALIDATION",
         title="Final validation",
         dependencies=["TASK-001"],
         expected_files=[],
@@ -98,7 +102,7 @@ def test_validation_only_task_may_have_no_paths() -> None:
     )
 
     assert _validate(
-        _plan(tasks=[_task(task_type="setup"), validation_task]), {"allowed_paths": []}
+        _plan(tasks=[_task(task_type="SETUP"), validation_task]), {"allowed_paths": []}
     ) == ()
 
 
@@ -223,11 +227,32 @@ def test_presatisfied_governance_tasks_are_rejected() -> None:
 
 
 def test_post_approval_plan_requires_setup_or_implementation_first() -> None:
-    testing = _task(task_type="testing", title="Run tests")
+    testing = _task(task_type="TESTING", title="Run tests")
     codes = {item["code"] for item in _validate(_plan(testing), {"allowed_paths": []})}
 
     assert "NO_POST_APPROVAL_IMPLEMENTATION_TASK" in codes
     assert "POST_APPROVAL_TASK_ORDER_INVALID" in codes
+
+
+def test_unsupported_model_task_type_fails_structured_output_parsing() -> None:
+    with pytest.raises(ValidationError):
+        PlanTask.model_validate(
+            {
+                "task_id": "TASK-001",
+                "title": "Unsupported dependency setup",
+                "description": "Invalid semantic synonym.",
+                "task_type": "DEPENDENCY_SETUP",
+                "dependencies": [],
+                "parallel_group": None,
+                "risk_level": "LOW",
+                "expected_files": ["pyproject.toml"],
+                "allowed_paths": ["pyproject.toml"],
+                "entry_criteria": [],
+                "exit_criteria": [],
+                "validation_commands": ["RUFF_CHECK"],
+                "acceptance_criteria_covered": [],
+            }
+        )
 
 
 def test_required_execution_stages_are_enforced() -> None:

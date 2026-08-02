@@ -1,16 +1,16 @@
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 REQUIRED_ROUTE_METHODS: dict[str, frozenset[str]] = {
-    "/": frozenset({"get"}),
-    "/health/live": frozenset({"get"}),
-    "/health/ready": frozenset({"get"}),
     "/api/v1/urls": frozenset({"post"}),
-    "/api/v1/urls/{short_code}": frozenset({"get"}),
-    "/api/v1/urls/{short_code}/analytics": frozenset({"get"}),
     "/{short_code}": frozenset({"get"}),
 }
+_ROUTE_REFERENCE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(/[A-Za-z0-9_{}./-]*)",
+    re.IGNORECASE,
+)
 
 
 class ContractCheck(BaseModel):
@@ -30,10 +30,23 @@ class URLShortenerContract(BaseModel):
         return cls(status="PASS" if all(item.passed for item in checks) else "FAIL", checks=checks)
 
 
-def validate_openapi_routes(document: dict[str, Any]) -> ContractCheck:
+def required_route_methods_from_requirement(requirement: str) -> dict[str, frozenset[str]]:
+    """Extract only HTTP route contracts explicitly stated by the user."""
+    routes: dict[str, set[str]] = {}
+    for method, path in _ROUTE_REFERENCE.findall(requirement):
+        normalized_path = path.rstrip(".,;:")
+        routes.setdefault(normalized_path, set()).add(method.casefold())
+    return {path: frozenset(methods) for path, methods in routes.items()}
+
+
+def validate_openapi_routes(
+    document: dict[str, Any],
+    required_route_methods: dict[str, frozenset[str]] | None = None,
+) -> ContractCheck:
     paths = document.get("paths", {}) if isinstance(document, dict) else {}
     missing = []
-    for route, methods in REQUIRED_ROUTE_METHODS.items():
+    contract = REQUIRED_ROUTE_METHODS if required_route_methods is None else required_route_methods
+    for route, methods in contract.items():
         available = {str(method).lower() for method in paths.get(route, {})}
         for method in sorted(methods - available):
             missing.append(f"{method.upper()} {route}")
@@ -45,5 +58,5 @@ def validate_openapi_routes(document: dict[str, Any]) -> ContractCheck:
             if not missing
             else "Required routes are missing."
         ),
-        evidence={"missing": missing},
+        evidence={"missing": missing, "required_routes": sorted(contract)},
     )

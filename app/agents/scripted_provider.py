@@ -376,11 +376,9 @@ class ScriptedProvider:
             active_task = payload.get("active_task", {})
             expected_files = set(active_task.get("expected_files", []))
             allowed_paths = [str(path).rstrip("/") for path in active_task.get("allowed_paths", [])]
-            if (expected_files or allowed_paths) and not (
-                scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
-                and retry_number == 0
-                and active_task.get("task_id") == "TASK-002"
-            ):
+            if not expected_files and not allowed_paths:
+                edits = []
+            else:
                 expected_directories = {
                     str(Path(path).parent).replace("\\", "/")
                     for path in expected_files
@@ -394,10 +392,10 @@ class ScriptedProvider:
                         edit["relative_path"].startswith(f"{path}/")
                         for path in expected_directories
                     )
-                    or (not expected_files and any(
+                    or any(
                         edit["relative_path"].startswith(f"{path}/")
                         for path in allowed_paths
-                    ))
+                    )
                 ]
             existing_hashes = payload.get("file_hashes", {})
             edits = [

@@ -13,11 +13,21 @@ class PlanningStatus(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+class PlanTaskType(StrEnum):
+    SETUP = "SETUP"
+    IMPLEMENTATION = "IMPLEMENTATION"
+    INTEGRATION = "INTEGRATION"
+    MIGRATION = "MIGRATION"
+    TESTING = "TESTING"
+    DOCUMENTATION = "DOCUMENTATION"
+    VALIDATION = "VALIDATION"
+
+
 class PlanTask(BaseModel):
     task_id: str = Field(pattern=r"^TASK-[0-9]{3}$")
     title: str
     description: str
-    task_type: str
+    task_type: PlanTaskType
     dependencies: list[str]
     parallel_group: str | None
     risk_level: RiskLevel

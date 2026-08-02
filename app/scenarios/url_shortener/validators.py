@@ -47,7 +47,11 @@ class URLShortenerValidator:
         self.alembic = alembic
         self.git = git
 
-    def validate(self, repository_path: Path) -> URLShortenerContract:
+    def validate(
+        self,
+        repository_path: Path,
+        required_route_methods: dict[str, frozenset[str]] | None = None,
+    ) -> URLShortenerContract:
         repository = self.policy.validate_working_directory(repository_path)
         checks: list[ContractCheck] = []
         scan = self.scanner.scan(repository)
@@ -124,7 +128,11 @@ class URLShortenerValidator:
         checks.append(self._command_check("target_openapi", openapi_result))
         if openapi_result.status == ToolStatus.SUCCESS:
             try:
-                checks.append(validate_openapi_routes(json.loads(openapi_result.stdout)))
+                checks.append(
+                    validate_openapi_routes(
+                        json.loads(openapi_result.stdout), required_route_methods
+                    )
+                )
             except json.JSONDecodeError:
                 checks.append(
                     ContractCheck(

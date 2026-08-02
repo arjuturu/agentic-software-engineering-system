@@ -9,6 +9,7 @@ def test_resolves_url_shortener_only_with_strong_greenfield_evidence() -> None:
         "Build a URL shortening service with custom aliases, redirects, and analytics.",
     )
     assert profile["profile_id"] == "URL_SHORTENER_GREENFIELD"
+    assert profile["required_capabilities"] == []
 
 
 @pytest.mark.parametrize(

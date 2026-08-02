@@ -26,7 +26,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     task_validation_result: dict[str, Any]
     all_required_tasks_completed: bool
     retry_context: dict[str, Any]
-    retry_repository_context: list[dict[str, Any]]
+    repository_context: list[dict[str, Any]]
     satisfied_task_ids: list[str]
     edit_policy_contexts: list[dict[str, Any]]
     plan_version: int

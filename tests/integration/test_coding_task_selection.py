@@ -101,7 +101,7 @@ def test_unknown_dependency_is_rejected_during_plan_validation(
         plan = original_planning(payload, scenario, retry_number)
         blocked = {
             **plan["tasks"][0],
-            "task_type": "setup",
+            "task_type": "SETUP",
             "dependencies": ["TASK-999"],
         }
         return {**plan, "tasks": [blocked, *plan["tasks"][1:]]}

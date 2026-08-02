@@ -59,6 +59,17 @@ def test_normal_safe_file_is_allowed(policy: PathPolicy) -> None:
     assert policy.validate_read_path(path) == path.resolve()
 
 
+def test_only_exact_env_example_is_allowed(policy: PathPolicy) -> None:
+    assert policy.resolve_workspace_path(".env.example") == (
+        policy.workspace_root / ".env.example"
+    )
+    for blocked in (".env", ".env.local", ".env.production", ".ENV.EXAMPLE"):
+        with pytest.raises(PathPolicyError):
+            policy.resolve_workspace_path(blocked)
+    with pytest.raises(PathPolicyError):
+        policy.resolve_workspace_path("nested/../.env.example")
+
+
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symbolic links are unsupported")
 def test_symlink_escape_is_blocked(policy: PathPolicy, tmp_path: Path) -> None:
     outside = tmp_path / "outside"

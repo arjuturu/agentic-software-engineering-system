@@ -8,6 +8,7 @@ from app.orchestration.tasks import (
     mark_task_completed,
     satisfy_approved_design_tasks,
 )
+from app.schemas.agents.planning import PlanTaskType
 
 
 def _task(
@@ -40,8 +41,8 @@ def _design_task() -> dict:
 def test_setup_task_is_selected_before_dependent_implementation() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "setup"),
-            _task("TASK-002", "implementation", dependencies=["TASK-001"]),
+            _task("TASK-001", "SETUP"),
+            _task("TASK-002", "IMPLEMENTATION", dependencies=["TASK-001"]),
         ],
         "execution_order": ["TASK-001", "TASK-002"],
     }
@@ -50,13 +51,13 @@ def test_setup_task_is_selected_before_dependent_implementation() -> None:
 
     assert selected is not None
     assert selected["task_id"] == "TASK-001"
-    assert selected["task_type"] == "setup"
+    assert selected["task_type"] == "SETUP"
     assert dependency_status(plan, selected)["status"] == "READY"
 
 
 def test_completed_design_task_is_preserved_and_skipped() -> None:
     plan = {
-        "tasks": [_design_task(), _task("TASK-001", "setup")],
+        "tasks": [_design_task(), _task("TASK-001", "SETUP")],
         "execution_order": ["TASK-000", "TASK-001"],
     }
 
@@ -73,8 +74,8 @@ def test_completed_design_task_is_preserved_and_skipped() -> None:
 def test_implementation_is_selected_after_setup_completes() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "setup", status="COMPLETED"),
-            _task("TASK-002", "implementation", dependencies=["TASK-001"]),
+            _task("TASK-001", "SETUP", status="COMPLETED"),
+            _task("TASK-002", "IMPLEMENTATION", dependencies=["TASK-001"]),
         ],
         "execution_order": ["TASK-001", "TASK-002"],
     }
@@ -88,8 +89,8 @@ def test_implementation_is_selected_after_setup_completes() -> None:
 def test_task_with_incomplete_dependencies_is_not_selected() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "setup"),
-            _task("TASK-002", "implementation", dependencies=["TASK-001"]),
+            _task("TASK-001", "SETUP"),
+            _task("TASK-002", "IMPLEMENTATION", dependencies=["TASK-001"]),
         ],
         "execution_order": ["TASK-002"],
     }
@@ -108,9 +109,9 @@ def test_task_with_incomplete_dependencies_is_not_selected() -> None:
 def test_validation_becomes_executable_after_implementation_and_testing() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "implementation", status="COMPLETED"),
-            _task("TASK-002", "testing", dependencies=["TASK-001"], status="COMPLETED"),
-            _task("TASK-003", "validation", dependencies=["TASK-001", "TASK-002"]),
+            _task("TASK-001", "IMPLEMENTATION", status="COMPLETED"),
+            _task("TASK-002", "TESTING", dependencies=["TASK-001"], status="COMPLETED"),
+            _task("TASK-003", "VALIDATION", dependencies=["TASK-001", "TASK-002"]),
         ],
         "execution_order": ["TASK-001", "TASK-002", "TASK-003"],
     }
@@ -124,8 +125,8 @@ def test_validation_becomes_executable_after_implementation_and_testing() -> Non
 def test_deterministic_execution_order_is_preserved() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "documentation"),
-            _task("TASK-002", "migration"),
+            _task("TASK-001", "DOCUMENTATION"),
+            _task("TASK-002", "MIGRATION"),
         ],
         "execution_order": ["TASK-002", "TASK-001"],
     }
@@ -133,21 +134,36 @@ def test_deterministic_execution_order_is_preserved() -> None:
     assert first_executable_task(plan)["task_id"] == "TASK-002"
 
 
-@pytest.mark.parametrize(
-    "task_type",
-    ["setup", "implementation", "testing", "test", "validation", "migration", "documentation"],
-)
-def test_supported_executable_task_types(task_type: str) -> None:
-    plan = {"tasks": [_task("TASK-001", task_type)], "execution_order": ["TASK-001"]}
+@pytest.mark.parametrize("task_type", list(PlanTaskType))
+def test_every_supported_task_type_can_be_selected_and_completed(
+    task_type: PlanTaskType,
+) -> None:
+    plan = {
+        "tasks": [_task("TASK-001", task_type.value)],
+        "execution_order": ["TASK-001"],
+    }
 
     assert first_executable_task(plan)["task_id"] == "TASK-001"
+    completed, changed = mark_task_completed(plan, "TASK-001")
+    assert changed is True
+    assert all_required_tasks_completed(completed) is True
+
+
+def test_unsupported_task_type_cannot_silently_execute() -> None:
+    plan = {
+        "tasks": [_task("TASK-001", "DEPENDENCY_SETUP")],
+        "execution_order": ["TASK-001"],
+    }
+
+    assert first_executable_task(plan) is None
+    assert all_required_tasks_completed(plan) is False
 
 
 def test_executable_plan_excludes_completed_tasks_without_reordering() -> None:
     plan = {
         "tasks": [
-            _task("TASK-001", "setup", status="COMPLETED"),
-            _task("TASK-002", "implementation"),
+            _task("TASK-001", "SETUP", status="COMPLETED"),
+            _task("TASK-002", "IMPLEMENTATION"),
         ],
         "execution_order": ["TASK-001", "TASK-002"],
     }
@@ -162,8 +178,8 @@ def test_completion_guard_requires_every_executable_task() -> None:
     plan = {
         "tasks": [
             _design_task(),
-            _task("TASK-001", "setup"),
-            _task("TASK-002", "implementation", dependencies=["TASK-001"]),
+            _task("TASK-001", "SETUP"),
+            _task("TASK-002", "IMPLEMENTATION", dependencies=["TASK-001"]),
         ],
         "execution_order": ["TASK-000", "TASK-001", "TASK-002"],
     }

@@ -42,7 +42,7 @@ class RepositoryCodingAgent:
                 "repository_analysis": state["repository_analysis"],
                 "validation_failure": state.get("validation_result"),
                 "file_hashes": file_hashes,
-                "retry_repository_context": state.get("retry_repository_context", []),
+                "repository_context": state.get("repository_context", []),
                 "originating_task": state.get("retry_context", {}).get("originating_task"),
             },
             output_model=CodingOutput,

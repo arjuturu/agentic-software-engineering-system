@@ -1,16 +1,15 @@
+.env
 .venv/
-__pycache__/
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
-.env
 data/*.db
+data/*checkpoint*
 generated_artifacts/*
 !generated_artifacts/.gitkeep
 workspace/*
 !workspace/.gitkeep
-data/*checkpoint*
 logs/
-generated workflow artifacts

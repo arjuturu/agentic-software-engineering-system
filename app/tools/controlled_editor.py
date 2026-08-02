@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = {".py", ".md", ".txt", ".toml", ".ini", ".yaml", ".yml", ".json"}
 _ALLOWED_EXTENSIONLESS = {"README", "LICENSE", "Makefile", "Dockerfile"}
-_ALLOWED_SPECIAL = {".gitignore"}
+_ALLOWED_SPECIAL = {".env.example", ".gitignore"}
 
 
 @dataclass(frozen=True)

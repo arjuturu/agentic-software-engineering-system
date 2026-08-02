@@ -175,6 +175,8 @@ class PathPolicy:
             if part == ".git" and index + 1 < len(parts):
                 if parts[index + 1] in {"config", "credentials"}:
                     return True
+        if path.name == ".env.example":
+            return False
         name = path.name.lower()
         if name == ".env" or name.startswith(".env."):
             return True

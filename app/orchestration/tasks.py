@@ -1,15 +1,8 @@
 from copy import deepcopy
 
+from app.schemas.agents.planning import PlanTaskType
+
 _COMPLETED_STATUSES = {"COMPLETED", "SATISFIED"}
-_EXECUTABLE_TASK_TYPES = {
-    "setup",
-    "implementation",
-    "testing",
-    "test",
-    "validation",
-    "migration",
-    "documentation",
-}
 _ARTIFACT_TERMS = ("architecture", "implementation plan", "design plan")
 _COMPLETION_TERMS = ("approv", "generat", "creat", "produc", "provid", "document")
 
@@ -27,19 +20,27 @@ def _ordered_tasks(plan: dict) -> list[dict]:
 
 
 def _is_approved_design_artifact_task(task: dict) -> bool:
-    if str(task.get("task_type", "")).strip().casefold() != "design":
-        return False
-    criteria = [
-        *task.get("acceptance_criteria_covered", []),
-        *task.get("exit_criteria", []),
-    ]
-    for criterion in criteria:
-        normalized = str(criterion).casefold()
-        if any(term in normalized for term in _ARTIFACT_TERMS) and any(
-            term in normalized for term in _COMPLETION_TERMS
-        ):
-            return True
+    # Historical checkpoints may contain the pre-enum DESIGN fixture value. New model output
+    # cannot produce it because PlanTask.task_type is strict.
+    if str(task.get("task_type", "")).strip().upper() == "DESIGN":
+        criteria = [
+            *task.get("acceptance_criteria_covered", []),
+            *task.get("exit_criteria", []),
+        ]
+        for criterion in criteria:
+            normalized = str(criterion).casefold()
+            if any(term in normalized for term in _ARTIFACT_TERMS) and any(
+                term in normalized for term in _COMPLETION_TERMS
+            ):
+                return True
     return False
+
+
+def plan_task_type(value: object) -> PlanTaskType | None:
+    try:
+        return PlanTaskType(str(value))
+    except ValueError:
+        return None
 
 
 def satisfy_approved_design_tasks(plan: dict) -> tuple[dict, list[str]]:
@@ -72,10 +73,10 @@ def dependency_status(plan: dict, task: dict) -> dict[str, object]:
 def first_executable_task(plan: dict) -> dict | None:
     """Select the first dependency-ready executable task in approved plan order."""
     for task in _ordered_tasks(plan):
-        task_type = str(task.get("task_type", "")).strip().casefold()
+        task_type = plan_task_type(task.get("task_type"))
         if (
             not _is_completed(task)
-            and task_type in _EXECUTABLE_TASK_TYPES
+            and task_type is not None
             and dependency_status(plan, task)["status"] == "READY"
         ):
             return deepcopy(task)
@@ -99,7 +100,7 @@ def required_executable_tasks(plan: dict) -> list[dict]:
     return [
         deepcopy(task)
         for task in _ordered_tasks(plan)
-        if str(task.get("task_type", "")).strip().casefold() in _EXECUTABLE_TASK_TYPES
+        if plan_task_type(task.get("task_type")) is not None
     ]
 
 

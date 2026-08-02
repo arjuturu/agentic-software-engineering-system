@@ -179,6 +179,36 @@ def test_restricted_or_disallowed_files_are_blocked(
     assert not (repository / path).exists()
 
 
+def test_exact_env_example_is_allowed_by_policy_and_editor(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+    effective = editor.path_policy.resolve_effective_allowed_paths(
+        [".env.example"], [".env.example"], policy_mode="SCENARIO_RESTRICTED"
+    )
+
+    result = editor.apply_batch(
+        repository,
+        [create_edit(".env.example", "APP_ENV=local\n")],
+        allowed_paths=effective,
+    )
+
+    assert result.status == ToolStatus.SUCCESS
+    assert (repository / ".env.example").read_text(encoding="utf-8") == "APP_ENV=local\n"
+
+
+@pytest.mark.parametrize("path", [".env.local", ".env.production", ".ENV.EXAMPLE"])
+def test_env_variants_remain_blocked_by_editor(
+    editor_setup: tuple[ControlledEditor, Path], path: str
+) -> None:
+    editor, repository = editor_setup
+
+    result = editor.apply_batch(repository, [create_edit(path, "SECRET=blocked\n")])
+
+    assert result.status == ToolStatus.BLOCKED
+    assert not (repository / path).exists()
+
+
 def test_oversized_content_is_blocked(
     editor_setup: tuple[ControlledEditor, Path],
 ) -> None:

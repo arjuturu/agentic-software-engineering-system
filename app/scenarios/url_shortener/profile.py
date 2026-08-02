@@ -16,14 +16,11 @@ class ScenarioProfile(BaseModel):
 URL_SHORTENER_PROFILE = ScenarioProfile(
     profile_id="URL_SHORTENER_GREENFIELD",
     scenario_type="GREENFIELD",
-    summary="A production-style local FastAPI URL-shortener target built by governed agents.",
-    required_capabilities=(
-        "create short URLs with optional aliases and expiration",
-        "redirect active short codes",
-        "report per-link analytics",
-        "provide liveness and readiness endpoints",
-        "manage schema exclusively through Alembic",
+    summary=(
+        "A governed greenfield URL-shortener target whose functional scope comes only from the "
+        "user requirement and approved clarifications."
     ),
+    required_capabilities=(),
     allowed_paths=(
         "app/",
         "migrations/",
@@ -36,14 +33,15 @@ URL_SHORTENER_PROFILE = ScenarioProfile(
         ".env.example",
         ".gitignore",
         "README.md",
+        "docs/",
     ),
     path_policy_mode="SCENARIO_RESTRICTED",
     validation_rules=(
-        "required HTTP routes and methods exist",
+        "HTTP routes and methods explicitly required by the approved requirement exist",
         "target application imports in an isolated subprocess",
         "target does not import control-plane modules",
         "target repository has no remote and no committed database files",
         "restricted secret and Git configuration files are absent",
-        "Ruff, pytest, and the Alembic upgrade/downgrade cycle pass",
+        "approved quality and migration requirements are validated deterministically",
     ),
 )

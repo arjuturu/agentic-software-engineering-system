@@ -181,6 +181,12 @@ baseline-commit rollback, and terminal safe stop for policy or security violatio
 Validation and preliminary documentation execute as parallel graph branches and join
 before the release recommendation.
 
+Planning output uses the canonical task types `SETUP`, `IMPLEMENTATION`, `INTEGRATION`,
+`MIGRATION`, `TESTING`, `DOCUMENTATION`, and `VALIDATION`. Fixable structural plan failures are
+returned to the Planning Agent with exact validation evidence for up to two corrections; only a
+validated plan is persisted as executable workflow tasks. Coding attempts receive current content
+and SHA-256 hashes only for existing files permitted by the active task.
+
 ### Run and verify Phase 3
 
 ~~~powershell
@@ -250,6 +256,10 @@ evidence, target importability, control-plane independence, restricted files, Gi
 database files, Alembic configuration and the upgrade/downgrade/re-upgrade cycle, Ruff, and pytest.
 Agent prose cannot override failed deterministic evidence.
 
+The user requirement and approved clarifications are the sole product-scope authority. The
+URL-shortener profile does not add business capabilities, and deterministic route validation uses
+only HTTP method/path pairs explicitly stated in the original requirement.
+
 ### Phase 4 demos
 
 The offline demo validates platform orchestration only. It deliberately continues to use the tiny
@@ -291,3 +301,10 @@ Current acceptance status:
 PHASE 4 PLATFORM SUPPORT — PASS
 REAL SIX-AGENT OPENAI GREENFIELD RUN — PENDING USER EXECUTION
 ~~~
+
+### Current limitations
+
+The implemented specialization supports governed greenfield generation only. Brownfield repository
+analysis, modification, migration, and release workflows are not supported yet. The OpenAI provider
+has no browsing or arbitrary tool access, Git operations remain local, and automated tests never
+make live OpenAI calls.

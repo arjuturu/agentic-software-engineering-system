@@ -46,7 +46,7 @@ class CodingAgentInput(AgentInput):
     repository_analysis: dict[str, object]
     validation_failure: dict[str, object] | None = None
     file_hashes: dict[str, str] = Field(default_factory=dict)
-    retry_repository_context: list[dict[str, object]] = Field(default_factory=list)
+    repository_context: list[dict[str, object]] = Field(default_factory=list)
     originating_task: dict[str, object] | None = None
 
 

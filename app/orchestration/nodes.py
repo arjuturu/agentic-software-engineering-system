@@ -28,6 +28,7 @@ from app.orchestration.tasks import (
 )
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.workflow_repository import WorkflowRepository
+from app.scenarios.url_shortener.contract import required_route_methods_from_requirement
 from app.scenarios.url_shortener.validators import URLShortenerValidator
 from app.schemas.agents.common import ApprovalGate
 from app.services.approval_service import ApprovalService
@@ -495,11 +496,9 @@ class WorkflowNodes:
                     **dependencies,
                 },
             )
-        retry_repository_context = self._retry_repository_context(
-            state, repository, active_task
-        )
+        repository_context = self._coding_repository_context(state, repository, active_task)
         hashes = {
-            item["relative_path"]: item["sha256"] for item in retry_repository_context
+            item["relative_path"]: item["sha256"] for item in repository_context
         }
         selection_evidence = {
             "task_id": active_task["task_id"],
@@ -517,7 +516,7 @@ class WorkflowNodes:
             **state,
             "implementation_plan": executable_plan(plan),
             "active_task": active_task,
-            "retry_repository_context": retry_repository_context,
+            "repository_context": repository_context,
         }
         output = self.repository_coding.code(coding_state, hashes)
         self.audit.record(
@@ -534,36 +533,56 @@ class WorkflowNodes:
             "last_error": {},
         }
 
-    def _retry_repository_context(
+    def _coding_repository_context(
         self, state: dict, repository: Path, active_task: dict
     ) -> list[dict[str, str]]:
-        """Read exact current content only for files relevant to a correction."""
-        if not state.get("retry_context", {}).get("active"):
-            names = set(state.get("changed_files", []))
-        else:
-            names = {
+        """Read current allowlisted files needed for every coding attempt."""
+        policy = self.editor.path_policy
+        task_allowed = list(active_task.get("allowed_paths", []))
+        scenario_profile = state.get("scenario_profile", {})
+        effective_allowed = policy.resolve_effective_allowed_paths(
+            task_allowed,
+            list(scenario_profile.get("allowed_paths", [])),
+            policy_mode=scenario_profile.get("path_policy_mode"),
+        )
+        names = set(map(str, active_task.get("expected_files", [])))
+        for allowed in effective_allowed:
+            try:
+                candidate = policy.validate_relative_path(
+                    repository, allowed, operation="write"
+                )
+            except PathPolicyError:
+                continue
+            if candidate.is_file():
+                names.add(allowed)
+            elif candidate.is_dir():
+                for nested in candidate.rglob("*"):
+                    if nested.is_file():
+                        names.add(nested.relative_to(repository).as_posix())
+        if state.get("retry_context", {}).get("active"):
+            names.update(
                 item.get("relative_path", "")
                 for item in state.get("code_change_plan", {}).get("structured_edits", [])
-            }
-            names.update(active_task.get("expected_files", []))
+            )
             names.update(state.get("changed_files", []))
         context: list[dict[str, str]] = []
         for name in sorted(names):
             if not name:
                 continue
             try:
-                candidate = self.editor.path_policy.validate_relative_path(repository, name)
+                normalized = policy.validate_allowed_path(name, effective_allowed)
+                candidate = policy.validate_relative_path(repository, normalized)
             except PathPolicyError:
                 continue
             if not candidate.is_file() or candidate.stat().st_size > self.editor.max_file_bytes:
                 continue
             try:
-                content = candidate.read_text(encoding="utf-8")
+                content = candidate.read_bytes().decode("utf-8")
             except (OSError, UnicodeError):
                 continue
             context.append(
                 {
-                    "relative_path": self.editor.path_policy.normalize_relative_path(name),
+                    "relative_path": normalized,
                     "sha256": file_sha256(candidate),
                     "content": content,
                 }
@@ -883,7 +902,10 @@ class WorkflowNodes:
         if contract_payload["profile_id"] == "URL_SHORTENER_GREENFIELD":
             if state.get("execution_mode") == "OPENAI":
                 contract_payload = self.target_validator.validate(
-                    Path(state["repository_path"])
+                    Path(state["repository_path"]),
+                    required_route_methods_from_requirement(
+                        state.get("original_requirement", "")
+                    ),
                 ).model_dump(mode="json")
                 results.append(
                     {

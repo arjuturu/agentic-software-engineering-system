@@ -41,7 +41,7 @@ def test_coding_retry_then_pass(
     assert payload["originating_task"]["task_id"] == "TASK-002"
     current_main = next(
         item
-        for item in payload["retry_repository_context"]
+        for item in payload["repository_context"]
         if item["relative_path"] == "sample_app/main.py"
     )
     assert 'return "wrong"' in current_main["content"]

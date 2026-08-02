@@ -7,7 +7,7 @@ def _plan(status: str = "PLANNED") -> dict:
         "tasks": [
             {
                 "task_id": "TASK-001",
-                "task_type": "implementation",
+                "task_type": "IMPLEMENTATION",
                 "status": status,
                 "dependencies": [],
             }
