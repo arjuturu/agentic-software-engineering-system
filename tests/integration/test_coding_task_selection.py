@@ -91,7 +91,8 @@ def test_architecture_approval_skips_completed_design_task_and_passes_task_paths
     tasks = checkpoint["implementation_plan"]["tasks"]
     assert [task["task_id"] for task in tasks] == ["TASK-001", "TASK-002", "TASK-003"]
     assert tasks[0]["status"] == "COMPLETED"
-    assert checkpoint["active_task"]["task_id"] == "TASK-002"
+    assert checkpoint["active_task"]["task_id"] == "TASK-003"
+    assert checkpoint["all_required_tasks_completed"] is True
 
     with app.state.workflow_runtime.sessions() as session:
         stored_tasks = list(
@@ -103,8 +104,8 @@ def test_architecture_approval_skips_completed_design_task_and_passes_task_paths
         )
     assert [(task.task_key, task.status) for task in stored_tasks] == [
         ("TASK-001", "COMPLETED"),
-        ("TASK-002", "PLANNED"),
-        ("TASK-003", "PLANNED"),
+        ("TASK-002", "COMPLETED"),
+        ("TASK-003", "COMPLETED"),
     ]
 
     audit = client.get(f"/api/v1/workflows/{workflow['workflowId']}/audit").json()
@@ -113,16 +114,22 @@ def test_architecture_approval_skips_completed_design_task_and_passes_task_paths
     change_plan = [item for item in audit if item["eventType"] == "CHANGE_PLAN_CREATED"]
     assert len(satisfied) == 1
     assert satisfied[0]["details"]["task_id"] == "TASK-001"
-    assert len(selected) == 1
+    assert len(selected) == 2
     assert selected[0]["details"] == {
         "task_id": "TASK-002",
         "task_type": "IMPLEMENTATION",
         "dependency_status": "READY",
         "dependencies": ["TASK-001"],
         "incomplete_dependencies": [],
+        "originating_task_id": None,
+        "retry_task_id": None,
     }
-    assert change_plan[0]["details"]["task_id"] == "TASK-002"
-    assert editor_allowed_paths == [["pyproject.toml", "sample_app", "tests"]]
+    assert [item["details"]["task_id"] for item in selected] == ["TASK-002", "TASK-003"]
+    assert [item["details"]["task_id"] for item in change_plan] == ["TASK-002", "TASK-003"]
+    assert editor_allowed_paths == [
+        ["pyproject.toml", "sample_app", "tests"],
+        ["tests"],
+    ]
     repository = app.state.workflow_runtime.settings.WORKSPACE_ROOT / "design-task-skip"
     assert not (repository / "architecture_plan.txt").exists()
 
@@ -155,7 +162,17 @@ def test_setup_task_is_selected_before_dependent_implementation(
         "dependency_status": "READY",
         "dependencies": [],
         "incomplete_dependencies": [],
+        "originating_task_id": None,
+        "retry_task_id": None,
     }
+    assert [item["details"]["task_id"] for item in selected] == ["TASK-001", "TASK-002"]
+    completed = [item for item in audit if item["eventType"] == "TASK_COMPLETED"]
+    assert [item["details"]["task_id"] for item in completed] == ["TASK-001", "TASK-002"]
+    event_types = [item["eventType"] for item in audit]
+    assert event_types.index("VALIDATION_STARTED") > event_types.index("TASK_COMPLETED", 0)
+    assert event_types.index("VALIDATION_STARTED") > max(
+        index for index, value in enumerate(event_types) if value == "TASK_COMPLETED"
+    )
 
 
 def test_dependency_deadlock_safe_stops_with_explicit_error(

@@ -1,9 +1,11 @@
 import pytest
 
 from app.orchestration.tasks import (
+    all_required_tasks_completed,
     dependency_status,
     executable_plan,
     first_executable_task,
+    mark_task_completed,
     satisfy_approved_design_tasks,
 )
 
@@ -154,3 +156,24 @@ def test_executable_plan_excludes_completed_tasks_without_reordering() -> None:
 
     assert [task["task_id"] for task in coding_plan["tasks"]] == ["TASK-002"]
     assert coding_plan["execution_order"] == ["TASK-002"]
+
+
+def test_completion_guard_requires_every_executable_task() -> None:
+    plan = {
+        "tasks": [
+            _design_task(),
+            _task("TASK-001", "setup"),
+            _task("TASK-002", "implementation", dependencies=["TASK-001"]),
+        ],
+        "execution_order": ["TASK-000", "TASK-001", "TASK-002"],
+    }
+    plan, _ = satisfy_approved_design_tasks(plan)
+
+    plan, changed = mark_task_completed(plan, "TASK-001")
+
+    assert changed is True
+    assert all_required_tasks_completed(plan) is False
+    assert first_executable_task(plan)["task_id"] == "TASK-002"
+    plan, changed = mark_task_completed(plan, "TASK-002")
+    assert changed is True
+    assert all_required_tasks_completed(plan) is True

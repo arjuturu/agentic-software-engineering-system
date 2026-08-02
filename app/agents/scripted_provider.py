@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
@@ -148,7 +149,7 @@ class ScriptedProvider:
     def _planning(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
-        del scenario, retry_number
+        del retry_number
         package_name = (
             "app"
             if payload.get("scenario_profile", {}).get("profile_id")
@@ -168,7 +169,11 @@ class ScriptedProvider:
                 "allowed_paths": ["pyproject.toml", package_name, "tests"],
                 "entry_criteria": ["Architecture approved"],
                 "exit_criteria": ["Package imports"],
-                "validation_commands": ["RUFF_CHECK", "PYTEST"],
+                "validation_commands": (
+                    ["RUFF_CHECK", "PYTEST"]
+                    if scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
+                    else ["RUFF_CHECK"]
+                ),
                 "acceptance_criteria_covered": ["Ruff completes successfully."],
             },
             {
@@ -292,7 +297,11 @@ class ScriptedProvider:
                 }
             ]
             status = "READY_TO_APPLY"
-        elif scenario == ScriptedScenario.CODING_RETRY_THEN_PASS and retry_number > 0:
+        elif (
+            scenario == ScriptedScenario.CODING_RETRY_THEN_PASS
+            and retry_number > 0
+            and payload.get("originating_task") is not None
+        ):
             edits = [
                 {
                     "operation": "MODIFY",
@@ -312,6 +321,37 @@ class ScriptedProvider:
                 else "hello"
             )
             edits = self._create_edits(result, package_name)
+            active_task = payload.get("active_task", {})
+            expected_files = set(active_task.get("expected_files", []))
+            allowed_paths = [str(path).rstrip("/") for path in active_task.get("allowed_paths", [])]
+            if (expected_files or allowed_paths) and not (
+                scenario == ScriptedScenario.CODING_RETRY_THEN_PASS and retry_number == 0
+            ):
+                expected_directories = {
+                    str(Path(path).parent).replace("\\", "/")
+                    for path in expected_files
+                    if "/" in str(path).replace("\\", "/")
+                }
+                edits = [
+                    edit
+                    for edit in edits
+                    if edit["relative_path"] in expected_files
+                    or any(
+                        edit["relative_path"].startswith(f"{path}/")
+                        for path in expected_directories
+                    )
+                    or (not expected_files and any(
+                        edit["relative_path"].startswith(f"{path}/")
+                        for path in allowed_paths
+                    ))
+                ]
+            existing_hashes = payload.get("file_hashes", {})
+            edits = [
+                edit
+                for edit in edits
+                if edit["operation"] != "CREATE"
+                or edit["relative_path"] not in existing_hashes
+            ]
             status = "READY_TO_APPLY"
         for edit in edits:
             is_create = edit["operation"] == "CREATE"
@@ -364,13 +404,17 @@ class ScriptedProvider:
             category = None if passed else "IMPLEMENTATION_DEFECT"
             rollback = False
             retry = not passed
+        criteria = payload.get("approved_requirement", {}).get(
+            "acceptance_criteria", ["Quality commands pass"]
+        )
         return {
             "acceptance_criteria_results": [
                 {
-                    "criterion": "Quality commands pass",
-                    "passed": passed,
+                    "criterion": criterion,
+                    "status": "PASSED" if passed else "FAILED",
                     "evidence": ["Ruff and pytest command results"],
                 }
+                for criterion in criteria
             ],
             "tests_executed": 1,
             "tests_passed": 1 if passed else 0,

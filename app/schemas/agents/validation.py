@@ -10,6 +10,14 @@ class ValidationStatus(StrEnum):
     VALIDATION_FAILED = "VALIDATION_FAILED"
     REPLAN_REQUIRED = "REPLAN_REQUIRED"
     SAFE_STOP_REQUIRED = "SAFE_STOP_REQUIRED"
+    INCOMPLETE_IMPLEMENTATION = "INCOMPLETE_IMPLEMENTATION"
+
+
+class CriterionStatus(StrEnum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+    NOT_TESTED = "NOT_TESTED"
 
 
 class ValidationAgentInput(AgentInput):
@@ -19,7 +27,7 @@ class ValidationAgentInput(AgentInput):
 
 class AcceptanceCriterionResult(BaseModel):
     criterion: str
-    passed: bool
+    status: CriterionStatus
     evidence: list[str]
 
 

@@ -45,3 +45,15 @@ class TestRunner:
             pytest=pytest_result,
             failed_step=None if status == ToolStatus.SUCCESS else "PYTEST",
         )
+
+    def run_task_commands(
+        self, repository_path: Path, command_ids: list[str]
+    ) -> list[CommandResult]:
+        """Run a task's approved validation commands in declared order."""
+        results: list[CommandResult] = []
+        for command_id in command_ids:
+            result = self.command_runner.run(CommandId(command_id), repository_path)
+            results.append(result)
+            if result.status != ToolStatus.SUCCESS:
+                break
+        return results

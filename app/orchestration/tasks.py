@@ -82,6 +82,38 @@ def first_executable_task(plan: dict) -> dict | None:
     return None
 
 
+def mark_task_completed(plan: dict, task_id: str) -> tuple[dict, bool]:
+    """Return a plan with one task completed, preserving plan order and metadata."""
+    updated = deepcopy(plan)
+    changed = False
+    for task in updated.get("tasks", []):
+        if task.get("task_id") == task_id and not _is_completed(task):
+            task["status"] = "COMPLETED"
+            changed = True
+            break
+    return updated, changed
+
+
+def required_executable_tasks(plan: dict) -> list[dict]:
+    """Return executable tasks in their approved deterministic execution order."""
+    return [
+        deepcopy(task)
+        for task in _ordered_tasks(plan)
+        if str(task.get("task_type", "")).strip().casefold() in _EXECUTABLE_TASK_TYPES
+    ]
+
+
+def unfinished_executable_task_ids(plan: dict) -> list[str]:
+    return [
+        task["task_id"] for task in required_executable_tasks(plan) if not _is_completed(task)
+    ]
+
+
+def all_required_tasks_completed(plan: dict) -> bool:
+    tasks = required_executable_tasks(plan)
+    return bool(tasks) and all(_is_completed(task) for task in tasks)
+
+
 def unfinished_task_ids(plan: dict) -> list[str]:
     return [task["task_id"] for task in _ordered_tasks(plan) if not _is_completed(task)]
 

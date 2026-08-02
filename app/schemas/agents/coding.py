@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.agents.common import AgentInput
 from app.tools.models import EditOperation
@@ -46,6 +46,8 @@ class CodingAgentInput(AgentInput):
     repository_analysis: dict[str, object]
     validation_failure: dict[str, object] | None = None
     file_hashes: dict[str, str] = Field(default_factory=dict)
+    retry_repository_context: list[dict[str, object]] = Field(default_factory=list)
+    originating_task: dict[str, object] | None = None
 
 
 class CodingEdit(BaseModel):
@@ -56,6 +58,24 @@ class CodingEdit(BaseModel):
     expected_hash: str | None
     old_text: str | None
     replacement_text: str | None
+
+    @model_validator(mode="after")
+    def validate_modify_mode(self) -> "CodingEdit":
+        if self.operation != EditOperation.MODIFY:
+            return self
+        full_file = (
+            self.content is not None
+            and self.old_text is None
+            and self.replacement_text is None
+        )
+        targeted = (
+            self.content is None
+            and self.old_text is not None
+            and self.replacement_text is not None
+        )
+        if not self.expected_hash or full_file == targeted:
+            raise ValueError("MODIFY must use exactly one hash-guarded edit mode")
+        return self
 
 
 class ChangePlanItem(BaseModel):

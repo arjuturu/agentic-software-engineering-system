@@ -202,9 +202,10 @@ class WorkflowRepository:
                 )
             )
 
-    def mark_tasks_completed(self, workflow_id: str, task_keys: list[str]) -> None:
+    def mark_tasks_completed(self, workflow_id: str, task_keys: list[str]) -> list[str]:
         if not task_keys:
-            return
+            return []
+        completed: list[str] = []
         tasks = self.session.scalars(
             select(WorkflowTask).where(
                 WorkflowTask.workflow_id == workflow_id,
@@ -212,9 +213,13 @@ class WorkflowRepository:
             )
         )
         for task in tasks:
+            if task.status in {"COMPLETED", "SATISFIED"}:
+                continue
             task.status = "COMPLETED"
             task.updated_at = utc_now()
+            completed.append(task.task_key)
         self.session.flush()
+        return completed
     def replace_tasks(self, workflow_id: str, plan: dict) -> None:
         for task in plan.get("tasks", []):
             key = task["task_id"]

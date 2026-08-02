@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings
 from app.tools.controlled_editor import ControlledEditor, file_sha256
@@ -79,7 +80,7 @@ def test_modify_with_hash_and_reject_stale_hash(
 
 
 @pytest.mark.parametrize(
-    ("content", "old_text", "error_code"),
+    ("content", "old_text", "conflict_type"),
     [
         ("alpha\n", "missing", "TEXT_NOT_FOUND"),
         ("same same\n", "same", "MULTIPLE_MATCHES"),
@@ -89,7 +90,7 @@ def test_exact_match_rules(
     editor_setup: tuple[ControlledEditor, Path],
     content: str,
     old_text: str,
-    error_code: str,
+    conflict_type: str,
 ) -> None:
     editor, repository = editor_setup
     path = repository / "app.py"
@@ -100,8 +101,40 @@ def test_exact_match_rules(
 
     assert result.status == ToolStatus.BLOCKED
     assert result.error is not None
-    assert result.error.code == error_code
+    assert result.error.code == "EDIT_CONFLICT"
+    assert result.error.details["failure_category"] == conflict_type
     assert path.read_text(encoding="utf-8") == content
+
+
+def test_full_file_replacement_with_matching_hash_succeeds(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+    path = repository / "app.py"
+    path.write_text("old\n", encoding="utf-8")
+    edit = StructuredEdit(
+        operation=EditOperation.MODIFY,
+        relative_path="app.py",
+        expected_hash=file_sha256(path),
+        content="new\n",
+    )
+
+    result = editor.apply_batch(repository, [edit])
+
+    assert result.status == ToolStatus.SUCCESS
+    assert path.read_text(encoding="utf-8") == "new\n"
+
+
+def test_mixed_modify_modes_are_rejected() -> None:
+    with pytest.raises(ValidationError):
+        StructuredEdit(
+            operation=EditOperation.MODIFY,
+            relative_path="app.py",
+            expected_hash="0" * 64,
+            content="new\n",
+            old_text="old",
+            replacement_text="new",
+        )
 
 
 def test_atomic_rollback_when_later_write_fails(

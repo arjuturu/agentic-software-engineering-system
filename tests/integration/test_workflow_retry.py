@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable
 
 import pytest
@@ -13,7 +14,19 @@ from app.orchestration.nodes import WorkflowNodes
 from tests.phase3_helpers import advance_to_release, approve_pending, create_workflow
 
 
-def test_coding_retry_then_pass(client: TestClient) -> None:
+def test_coding_retry_then_pass(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = ScriptedProvider.generate
+    retry_payloads: list[dict] = []
+
+    def capture_retry(self: ScriptedProvider, **kwargs):
+        payload = kwargs["input_payload"]
+        if kwargs["agent_name"] == "CODING_AGENT" and payload.get("originating_task"):
+            retry_payloads.append(payload)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(ScriptedProvider, "generate", capture_retry)
     workflow = advance_to_release(client, "CODING_RETRY_THEN_PASS", "retry-target")
     assert workflow["retryCounts"]["coding"] == 1
     events = [
@@ -21,7 +34,28 @@ def test_coding_retry_then_pass(client: TestClient) -> None:
         for item in client.get(f"/api/v1/workflows/{workflow['workflowId']}/audit").json()
     ]
     assert "RETRY_STARTED" in events
-    assert events.count("VALIDATION_COMPLETED") == 2
+    assert events.count("TASK_VALIDATION_COMPLETED") == 3
+    assert events.count("VALIDATION_COMPLETED") == 1
+    assert len(retry_payloads) == 1
+    payload = retry_payloads[0]
+    assert payload["originating_task"]["task_id"] == "TASK-001"
+    current_main = next(
+        item
+        for item in payload["retry_repository_context"]
+        if item["relative_path"] == "sample_app/main.py"
+    )
+    assert 'return "wrong"' in current_main["content"]
+    assert current_main["sha256"] == hashlib.sha256(
+        current_main["content"].encode("utf-8")
+    ).hexdigest()
+
+    audit = client.get(f"/api/v1/workflows/{workflow['workflowId']}/audit").json()
+    retry = next(item for item in audit if item["eventType"] == "RETRY_STARTED")
+    assert retry["details"]["originating_task_id"] == "TASK-001"
+    assert retry["details"]["retry_task_id"] == "TASK-001-RETRY-1"
+    assert retry["details"]["validation_command"] == "PYTEST"
+    assert retry["details"]["failure_category"] == "IMPLEMENTATION_DEFECT"
+    assert retry["details"]["attempt_number"] == 2
 
 
 def _model_failure() -> ApplicationError:

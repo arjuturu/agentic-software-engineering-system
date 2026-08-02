@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ToolStatus(StrEnum):
@@ -109,6 +109,30 @@ class StructuredEdit(BaseModel):
     expected_hash: str | None = None
     old_text: str | None = None
     replacement_text: str | None = None
+
+    @model_validator(mode="after")
+    def validate_operation_contract(self) -> "StructuredEdit":
+        if self.operation == EditOperation.CREATE:
+            if (
+                self.content is None
+                or self.old_text is not None
+                or self.replacement_text is not None
+            ):
+                raise ValueError("CREATE requires content and cannot use replacement fields")
+            return self
+        full_file = (
+            self.content is not None
+            and self.old_text is None
+            and self.replacement_text is None
+        )
+        targeted = (
+            self.content is None
+            and self.old_text is not None
+            and self.replacement_text is not None
+        )
+        if not self.expected_hash or full_file == targeted:
+            raise ValueError("MODIFY must use exactly one hash-guarded edit mode")
+        return self
 
 
 class ValidationSuiteResult(BaseModel):

@@ -79,11 +79,19 @@ class ControlledEditor:
             raise PathPolicyError("The requested path is not a file.", "NOT_A_FILE")
         if not self._extension_allowed(path):
             raise PathPolicyError("The requested file type is not allowed.", "FILE_TYPE_BLOCKED")
-        if not edit.expected_hash or edit.old_text is None or edit.replacement_text is None:
+        if not edit.expected_hash:
             raise PathPolicyError("Modify guards are incomplete.", "INVALID_MODIFY")
         previous = path.read_bytes()
         if sha256_bytes(previous) != edit.expected_hash.lower():
-            raise PathPolicyError("The expected file hash is stale.", "HASH_MISMATCH")
+            raise PathPolicyError(
+                "The expected file hash is stale.",
+                "HASH_MISMATCH",
+                details={"failure_category": "STALE_EDIT_CONTEXT"},
+            )
+        if edit.content is not None:
+            resulting = edit.content.encode("utf-8")
+            self._check_content_size(resulting)
+            return _PreparedEdit(edit, path, edit.relative_path, previous, resulting)
         try:
             existing_text = previous.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -92,9 +100,17 @@ class ControlledEditor:
             ) from exc
         occurrences = existing_text.count(edit.old_text)
         if occurrences == 0:
-            raise PathPolicyError("The exact old text was not found.", "TEXT_NOT_FOUND")
+            raise PathPolicyError(
+                "The exact old text was not found.",
+                "EDIT_CONFLICT",
+                details={"failure_category": "TEXT_NOT_FOUND"},
+            )
         if occurrences > 1:
-            raise PathPolicyError("The exact old text is ambiguous.", "MULTIPLE_MATCHES")
+            raise PathPolicyError(
+                "The exact old text is ambiguous.",
+                "EDIT_CONFLICT",
+                details={"failure_category": "MULTIPLE_MATCHES"},
+            )
         resulting = existing_text.replace(edit.old_text, edit.replacement_text, 1).encode("utf-8")
         self._check_content_size(resulting)
         return _PreparedEdit(edit, path, edit.relative_path, previous, resulting)

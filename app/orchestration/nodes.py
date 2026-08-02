@@ -17,11 +17,13 @@ from app.orchestration.retries import RetryPolicy
 from app.orchestration.rollback import perform_rollback
 from app.orchestration.safe_stop import safe_stop_workflow
 from app.orchestration.tasks import (
+    all_required_tasks_completed,
     dependency_status,
     executable_plan,
     first_executable_task,
+    mark_task_completed,
     satisfy_approved_design_tasks,
-    unfinished_task_ids,
+    unfinished_executable_task_ids,
 )
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.workflow_repository import WorkflowRepository
@@ -370,15 +372,13 @@ class WorkflowNodes:
 
     def coding_agent(self, state: dict) -> dict:
         repository = Path(state["repository_path"])
-        hashes = {}
-        for name in state.get("changed_files", []):
-            candidate = repository / name
-            if candidate.is_file():
-                hashes[name] = file_sha256(candidate)
         plan = state.get("implementation_plan", {})
-        active_task = first_executable_task(plan)
+        retry_context = state.get("retry_context", {})
+        retry_task = retry_context.get("originating_task")
+        active_task = retry_task if retry_context.get("active") and retry_task else None
+        active_task = active_task or first_executable_task(plan)
         if active_task is None:
-            unfinished = unfinished_task_ids(plan)
+            unfinished = unfinished_executable_task_ids(plan)
             if unfinished:
                 return self._policy_error(
                     "TASK_DEPENDENCY_VIOLATION",
@@ -392,12 +392,29 @@ class WorkflowNodes:
                 "NO_EXECUTABLE_TASK", "No unfinished executable task is available."
             )
         dependencies = dependency_status(plan, active_task)
+        if dependencies["status"] != "READY":
+            return self._policy_error(
+                "TASK_DEPENDENCY_VIOLATION",
+                "The selected task has incomplete dependencies.",
+                {
+                    "task_id": active_task.get("task_id"),
+                    **dependencies,
+                },
+            )
+        retry_repository_context = self._retry_repository_context(
+            state, repository, active_task
+        )
+        hashes = {
+            item["relative_path"]: item["sha256"] for item in retry_repository_context
+        }
         selection_evidence = {
             "task_id": active_task["task_id"],
             "task_type": active_task.get("task_type", ""),
             "dependency_status": dependencies["status"],
             "dependencies": dependencies["dependencies"],
             "incomplete_dependencies": dependencies["incomplete_dependencies"],
+            "originating_task_id": retry_context.get("originating_task_id"),
+            "retry_task_id": retry_context.get("retry_task_id"),
         }
         self.audit.record(
             state["workflow_id"], "CODING_TASK_SELECTED", "CODING", selection_evidence
@@ -406,6 +423,7 @@ class WorkflowNodes:
             **state,
             "implementation_plan": executable_plan(plan),
             "active_task": active_task,
+            "retry_repository_context": retry_repository_context,
         }
         output = self.repository_coding.code(coding_state, hashes)
         self.audit.record(
@@ -421,6 +439,42 @@ class WorkflowNodes:
             "current_stage": "CODING",
             "last_error": {},
         }
+
+    def _retry_repository_context(
+        self, state: dict, repository: Path, active_task: dict
+    ) -> list[dict[str, str]]:
+        """Read exact current content only for files relevant to a correction."""
+        if not state.get("retry_context", {}).get("active"):
+            names = set(state.get("changed_files", []))
+        else:
+            names = {
+                item.get("relative_path", "")
+                for item in state.get("code_change_plan", {}).get("structured_edits", [])
+            }
+            names.update(active_task.get("expected_files", []))
+            names.update(state.get("changed_files", []))
+        context: list[dict[str, str]] = []
+        for name in sorted(names):
+            if not name:
+                continue
+            try:
+                candidate = self.editor.path_policy.validate_relative_path(repository, name)
+            except PathPolicyError:
+                continue
+            if not candidate.is_file() or candidate.stat().st_size > self.editor.max_file_bytes:
+                continue
+            try:
+                content = candidate.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            context.append(
+                {
+                    "relative_path": self.editor.path_policy.normalize_relative_path(name),
+                    "sha256": file_sha256(candidate),
+                    "content": content,
+                }
+            )
+        return context
 
     def change_policy_validation(self, state: dict) -> dict:
         edits = [
@@ -537,6 +591,17 @@ class WorkflowNodes:
             StructuredEdit.model_validate(item)
             for item in state["code_change_plan"]["structured_edits"]
         ]
+        if not edits:
+            self.audit.record(
+                state["workflow_id"],
+                "CHANGES_APPLIED",
+                "CODING",
+                {"changed_files": [], "task_id": state.get("active_task", {}).get("task_id")},
+            )
+            return {
+                "implementation_result": state["code_change_plan"],
+                "last_error": {},
+            }
         contexts = state.get("edit_policy_contexts", [])
         if len(contexts) != len(edits):
             contexts, error = self._resolve_edit_policy_contexts(state, edits)
@@ -559,7 +624,12 @@ class WorkflowNodes:
         if result.status != ToolStatus.SUCCESS:
             code = result.error.code if result.error else "EDIT_FAILED"
             details = result.error.details if result.error else {}
-            return self._policy_error(code, "A controlled edit was blocked.", details)
+            category = (
+                "REPOSITORY_POLICY_VIOLATION"
+                if code == "REPOSITORY_POLICY_VIOLATION"
+                else str(details.get("failure_category") or code)
+            )
+            return self._state_error(code, category, "A controlled edit was blocked.", details)
         changed = [operation.path for operation in result.operations]
         diff = self.git.get_diff(repository)
         diff_ref = self.artifacts.write_text(
@@ -606,13 +676,103 @@ class WorkflowNodes:
     def policy_validation(self, state: dict) -> dict:
         return {}
 
+    def task_validation(self, state: dict) -> dict:
+        task = state.get("active_task", {})
+        task_id = task.get("task_id")
+        commands = [str(item) for item in task.get("validation_commands", [])]
+        self.audit.record(
+            state["workflow_id"],
+            "TASK_VALIDATION_STARTED",
+            "TASK_VALIDATION",
+            {"task_id": task_id, "validation_commands": commands},
+        )
+        command_results = self.tests.run_task_commands(Path(state["repository_path"]), commands)
+        passed = all(result.status == ToolStatus.SUCCESS for result in command_results)
+        failed = next(
+            (result for result in command_results if result.status != ToolStatus.SUCCESS), None
+        )
+        result = {
+            "level": "TASK",
+            "task_id": task_id,
+            "status": "VALIDATION_PASSED" if passed else "VALIDATION_FAILED",
+            "failure_category": None if passed else "IMPLEMENTATION_DEFECT",
+            "command_results": [item.model_dump(mode="json") for item in command_results],
+            "failed_command": failed.command_id if failed else None,
+            "relevant_output": (
+                {"stdout": failed.stdout, "stderr": failed.stderr} if failed else {}
+            ),
+        }
+        self.audit.record(
+            state["workflow_id"],
+            "TASK_VALIDATION_COMPLETED",
+            "TASK_VALIDATION",
+            {
+                "task_id": task_id,
+                "status": result["status"],
+                "failed_command": result["failed_command"],
+            },
+        )
+        return {"task_validation_result": result, "validation_result": result}
+
+    def complete_task(self, state: dict) -> dict:
+        task = state.get("active_task", {})
+        task_id = str(task.get("task_id", ""))
+        plan, _ = mark_task_completed(state.get("implementation_plan", {}), task_id)
+        with self.sessions.begin() as session:
+            repository = WorkflowRepository(session)
+            completed = repository.mark_tasks_completed(state["workflow_id"], [task_id])
+            if completed:
+                AuditRepository(session).add(
+                    state["workflow_id"],
+                    "TASK_COMPLETED",
+                    "CODING",
+                    {
+                        "task_id": task_id,
+                        "task_type": task.get("task_type"),
+                        "validation_commands": task.get("validation_commands", []),
+                    },
+                )
+        complete = all_required_tasks_completed(plan)
+        return {
+            "implementation_plan": plan,
+            "active_task": {**task, "status": "COMPLETED"},
+            "all_required_tasks_completed": complete,
+            "retry_context": {},
+            "last_error": {},
+            "workflow_status": "VALIDATING" if complete else "IMPLEMENTING",
+            "current_stage": "FINAL_VALIDATION" if complete else "CODING",
+        }
+
     def parallel_start(self, state: dict) -> dict:
+        if not all_required_tasks_completed(state.get("implementation_plan", {})):
+            return self._state_error(
+                "INCOMPLETE_IMPLEMENTATION",
+                "INCOMPLETE_IMPLEMENTATION",
+                "Final validation requires every executable task to be complete.",
+                {
+                    "unfinished_task_ids": unfinished_executable_task_ids(
+                        state.get("implementation_plan", {})
+                    )
+                },
+            )
         return {
             "workflow_status": "VALIDATING",
-            "current_stage": "PARALLEL_VALIDATION_DOCUMENTATION",
+            "current_stage": "FINAL_VALIDATION",
+            "all_required_tasks_completed": True,
         }
 
     def validation_agent(self, state: dict) -> dict:
+        if not all_required_tasks_completed(state.get("implementation_plan", {})):
+            return {
+                "validation_result": {
+                    "status": "INCOMPLETE_IMPLEMENTATION",
+                    "failure_category": "INCOMPLETE_IMPLEMENTATION",
+                    "unfinished_task_ids": unfinished_executable_task_ids(
+                        state.get("implementation_plan", {})
+                    ),
+                },
+                "validation_branch_complete": True,
+            }
         self.audit.record(state["workflow_id"], "VALIDATION_STARTED", "VALIDATION")
         suite = self.tests.run_validation_suite(Path(state["repository_path"]))
         results = [suite.ruff.model_dump(mode="json")]
@@ -648,6 +808,7 @@ class WorkflowNodes:
             contract_payload,
         )
         output = self.validation.run(state, results)
+        output = self._normalize_final_validation(state, output, contract_payload)
         self.audit.record(
             state["workflow_id"],
             "VALIDATION_COMPLETED",
@@ -671,6 +832,46 @@ class WorkflowNodes:
             },
         }
 
+    @staticmethod
+    def _normalize_final_validation(
+        state: dict, output: dict, contract_payload: dict
+    ) -> dict:
+        """Require explicit evidence for every approved acceptance criterion."""
+        normalized = dict(output)
+        approved = list(state.get("approved_requirement", {}).get("acceptance_criteria", []))
+        reported = {
+            str(item.get("criterion")): dict(item)
+            for item in normalized.get("acceptance_criteria_results", [])
+        }
+        contract_failed = contract_payload.get("status") == "FAIL"
+        complete_results: list[dict] = []
+        for criterion in approved:
+            item = reported.get(str(criterion))
+            if item is None:
+                status = "NOT_IMPLEMENTED" if contract_failed else "NOT_TESTED"
+                item = {
+                    "criterion": criterion,
+                    "status": status,
+                    "evidence": ["No complete validation evidence was supplied."],
+                }
+            complete_results.append(item)
+        if approved:
+            normalized["acceptance_criteria_results"] = complete_results
+        unsuccessful = {
+            item.get("status")
+            for item in normalized.get("acceptance_criteria_results", [])
+        } & {"FAILED", "NOT_IMPLEMENTED", "NOT_TESTED"}
+        if contract_failed or unsuccessful:
+            normalized["architecture_compliance"] = False
+            normalized["status"] = "VALIDATION_FAILED"
+            normalized["release_recommendation"] = "NOT_READY"
+            normalized["retry_recommended"] = not contract_failed
+            normalized["replan_recommended"] = contract_failed
+            normalized["failure_category"] = (
+                "ARCHITECTURE_MISMATCH" if contract_failed else "IMPLEMENTATION_DEFECT"
+            )
+        return normalized
+
     def documentation_draft(self, state: dict) -> dict:
         return {
             "documentation_draft": self.documentation.draft(state),
@@ -686,23 +887,53 @@ class WorkflowNodes:
         }
 
     def failure_classifier(self, state: dict) -> dict:
-        category = state.get("validation_result", {}).get("failure_category")
+        category = state.get("validation_result", {}).get("failure_category") or state.get(
+            "last_error", {}
+        ).get("category")
         return {"last_error": {"category": category}} if category else {}
 
     def retry_router(self, state: dict) -> dict:
         current = state.get("retry_counts", {}).get("coding", 0)
-        category = state.get("validation_result", {}).get("failure_category")
+        category = state.get("validation_result", {}).get("failure_category") or state.get(
+            "last_error", {}
+        ).get("category")
         decision = self.retry_policy.decide("coding", current, category)
         counts = {**state.get("retry_counts", {}), "coding": decision.next_count}
+        originating_task = state.get("active_task", {})
+        failed_command = state.get("validation_result", {}).get("failed_command")
+        retry_task_id = (
+            f"{originating_task.get('task_id', 'TASK')}-RETRY-{decision.next_count}"
+            if decision.allowed
+            else None
+        )
         if decision.allowed:
             self.audit.record(
-                state["workflow_id"], "RETRY_STARTED", "CODING", {"retry": decision.next_count}
+                state["workflow_id"],
+                "RETRY_STARTED",
+                "CODING",
+                {
+                    "retry": decision.next_count,
+                    "originating_task_id": originating_task.get("task_id"),
+                    "retry_task_id": retry_task_id,
+                    "validation_command": failed_command,
+                    "failure_category": category,
+                    "attempt_number": decision.next_count + 1,
+                },
             )
         return {
             "retry_counts": counts,
             "last_error": {"category": category, "retry_allowed": decision.allowed},
+            "retry_context": {
+                "active": decision.allowed,
+                "originating_task": originating_task,
+                "originating_task_id": originating_task.get("task_id"),
+                "retry_task_id": retry_task_id,
+                "validation_command": failed_command,
+                "failure_category": category,
+                "attempt_number": decision.next_count + 1,
+            },
             "workflow_status": "RETRYING",
-            "current_stage": "RETRY",
+            "current_stage": "CODING",
         }
 
     def replan(self, state: dict) -> dict:
@@ -718,6 +949,17 @@ class WorkflowNodes:
         return safe_stop_workflow(state, self.artifacts, self.audit)
 
     def documentation_release_agent(self, state: dict) -> dict:
+        if not all_required_tasks_completed(state.get("implementation_plan", {})):
+            return self._state_error(
+                "INCOMPLETE_IMPLEMENTATION",
+                "INCOMPLETE_IMPLEMENTATION",
+                "Release processing requires every executable task to be complete.",
+                {
+                    "unfinished_task_ids": unfinished_executable_task_ids(
+                        state.get("implementation_plan", {})
+                    )
+                },
+            )
         output = self.documentation.release(state)
         self.audit.record(
             state["workflow_id"],
@@ -876,6 +1118,18 @@ class WorkflowNodes:
             "category": "POLICY_VIOLATION",
             "message": message,
         }
+        if details:
+            error["details"] = details
+        return {"last_error": error}
+
+    @staticmethod
+    def _state_error(
+        code: str,
+        category: str,
+        message: str,
+        details: dict[str, object] | None = None,
+    ) -> dict[str, Any]:
+        error: dict[str, object] = {"code": code, "category": category, "message": message}
         if details:
             error["details"] = details
         return {"last_error": error}

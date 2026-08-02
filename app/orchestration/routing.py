@@ -41,6 +41,8 @@ def route_quality(state: EngineeringWorkflowState) -> str:
     category = validation.get("failure_category")
     if status == "VALIDATION_PASSED":
         return "documentation_release_agent"
+    if status == "INCOMPLETE_IMPLEMENTATION" or category == "INCOMPLETE_IMPLEMENTATION":
+        return "coding_agent"
     if category == "IMPLEMENTATION_DEFECT":
         return "retry_router"
     if category == "REQUIREMENT_AMBIGUITY":
@@ -54,6 +56,25 @@ def route_quality(state: EngineeringWorkflowState) -> str:
 
 def route_retry(state: EngineeringWorkflowState) -> str:
     return "coding_agent" if state.get("last_error", {}).get("retry_allowed") else "rollback"
+
+
+def route_apply_changes(state: EngineeringWorkflowState) -> str:
+    error = state.get("last_error", {})
+    if not error:
+        return "task_validation"
+    if error.get("category") == "REPOSITORY_POLICY_VIOLATION":
+        return "safe_stop"
+    return "retry_router"
+
+
+def route_task_validation(state: EngineeringWorkflowState) -> str:
+    if state.get("task_validation_result", {}).get("status") == "VALIDATION_PASSED":
+        return "complete_task"
+    return "failure_classifier"
+
+
+def route_task_completion(state: EngineeringWorkflowState) -> str:
+    return "parallel_start" if state.get("all_required_tasks_completed") else "coding_agent"
 
 
 def route_replan(state: EngineeringWorkflowState) -> str:
