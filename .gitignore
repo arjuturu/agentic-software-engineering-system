@@ -13,3 +13,5 @@ generated_artifacts/*
 workspace/*
 !workspace/.gitkeep
 logs/
+docs/
+evidence/
