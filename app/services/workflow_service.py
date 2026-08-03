@@ -130,7 +130,7 @@ class WorkflowService:
                 "INVALID_SCRIPTED_SCENARIO",
                 400,
             )
-        if request.scenario_type.value == "BROWNFIELD":
+        if request.scenario_type.value in {"BROWNFIELD", "AMBIGUOUS"}:
             try:
                 self.runtime.workspace.validate_brownfield_source(
                     request.source_workspace or "", request.workspace_name
@@ -145,7 +145,7 @@ class WorkflowService:
                 }:
                     status_code = 400
                 raise ApplicationError(
-                    "The Brownfield workspace request is invalid.",
+                    "The source-based workspace request is invalid.",
                     exc.error_code,
                     status_code,
                 ) from exc

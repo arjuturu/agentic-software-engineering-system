@@ -2,6 +2,82 @@
 
 from typing import Any
 
+ALIAS_CLARIFICATION_QUESTIONS = [
+    {"question_id": "Q-ALIAS-001", "question": "Is a custom alias optional or required?"},
+    {"question_id": "Q-ALIAS-002", "question": "Which characters are allowed?"},
+    {
+        "question_id": "Q-ALIAS-003",
+        "question": "What are the minimum and maximum lengths?",
+    },
+    {
+        "question_id": "Q-ALIAS-004",
+        "question": "How should case sensitivity and uniqueness work?",
+    },
+    {
+        "question_id": "Q-ALIAS-005",
+        "question": "What response should be returned for an existing alias?",
+    },
+    {"question_id": "Q-ALIAS-006", "question": "Which path values are reserved?"},
+]
+
+
+def alias_requirement(
+    requirement_text: str, answers: list[dict[str, str]]
+) -> dict[str, Any]:
+    if not answers:
+        return {
+            "normalized_requirement": requirement_text.strip(),
+            "functional_requirements": [
+                "Add custom aliases only after their validation contract is clarified."
+            ],
+            "non_functional_requirements": [
+                "Preserve the governed source repository until clarification is complete."
+            ],
+            "assumptions": [],
+            "ambiguities": [
+                "Alias optionality, syntax, length, case handling, conflicts, and reserved paths "
+                "are not defined."
+            ],
+            "clarification_questions": ALIAS_CLARIFICATION_QUESTIONS,
+            "acceptance_criteria": [],
+            "risks": ["Implementing aliases without clarification could change URL semantics."],
+            "material_ambiguity": True,
+            "risk_level": "MEDIUM",
+            "status": "CLARIFICATION_REQUIRED",
+        }
+    answer_map = {item["question_id"]: item["answer"] for item in answers}
+    return {
+        "normalized_requirement": (
+            f"{requirement_text.strip()} Optional aliases are lowercase, 4-30 characters, "
+            "use lowercase letters, digits, hyphen, or underscore, share the short-code "
+            "namespace, reserve api/docs/openapi.json/health, and return HTTP 409 for conflicts."
+        ),
+        "functional_requirements": [
+            "Accept an optional custom_alias while preserving generated-code behavior.",
+            "Trim and lowercase aliases, then enforce the approved syntax and length.",
+            "Reject api, docs, openapi.json, and health as reserved aliases.",
+            "Use the existing unique short_code namespace for aliases and generated codes.",
+            "Return HTTP 409 with detail Custom alias already exists for duplicate aliases.",
+        ],
+        "non_functional_requirements": [
+            "Preserve the existing FastAPI, SQLAlchemy, SQLite, Alembic, Pytest, and Ruff design.",
+            "Use hash-guarded controlled modifications in a governed source copy.",
+        ],
+        "assumptions": [f"{question_id}: {answer}" for question_id, answer in answer_map.items()],
+        "ambiguities": [],
+        "clarification_questions": [],
+        "acceptance_criteria": [
+            "Missing custom_alias retains eight-character generated-code creation.",
+            "Valid aliases are normalized, persisted, returned, and redirected.",
+            "Invalid, reserved, and duplicate aliases return the approved responses.",
+            "Existing URL validation, redirects, missing-code behavior, tests, and lint pass.",
+        ],
+        "risks": ["Alias and generated-code concurrency share one uniqueness constraint."],
+        "material_ambiguity": False,
+        "risk_level": "MEDIUM",
+        "status": "READY_FOR_APPROVAL",
+    }
+
 
 def requirement(requirement_text: str, *, brownfield: bool) -> dict[str, Any]:
     capabilities = [
@@ -112,6 +188,88 @@ def design(*, brownfield: bool) -> dict[str, Any]:
         "risks": ["Migration compatibility must be validated."],
         "trade_offs": ["Local SQLite favors simplicity over distributed scale."],
         "limitations": ["No aliases, expiration, authentication, cache, UI, or cloud support."],
+        "implementation_feasible": True,
+        "status": "DESIGN_COMPLETE",
+    }
+
+
+def alias_design() -> dict[str, Any]:
+    return {
+        "architecture_summary": (
+            "Repository-aware extension of the existing layered URL shortener with optional "
+            "custom aliases in the existing short-code namespace."
+        ),
+        "components": [
+            {
+                "name": "Schemas",
+                "responsibility": "Normalize and validate optional custom aliases.",
+                "interfaces": ["UrlCreate"],
+                "dependencies": ["Pydantic"],
+            },
+            {
+                "name": "Service",
+                "responsibility": "Persist aliases once and preserve bounded generated codes.",
+                "interfaces": ["create_short_url"],
+                "dependencies": ["Repository"],
+            },
+            {
+                "name": "API",
+                "responsibility": "Map alias conflicts to the approved HTTP response.",
+                "interfaces": ["POST /api/v1/urls", "GET /{short_code}"],
+                "dependencies": ["Service"],
+            },
+        ],
+        "api_design": [
+            {
+                "name": "create URL with optional alias",
+                "method_or_type": "POST",
+                "path_or_signature": "/api/v1/urls",
+                "purpose": "Create a generated code or normalized custom alias.",
+            },
+            {
+                "name": "redirect alias or generated code",
+                "method_or_type": "GET",
+                "path_or_signature": "/{short_code}",
+                "purpose": "Resolve the shared short-code namespace.",
+            },
+        ],
+        "data_design": [
+            {
+                "entity": "UrlMapping",
+                "purpose": "Store generated codes and aliases in one namespace.",
+                "fields": ["id", "original_url", "short_code"],
+                "relationships": [],
+                "constraints": ["short_code is unique"],
+            }
+        ],
+        "control_flow": [
+            "Normalize and validate an optional alias",
+            "Check the shared namespace",
+            "Persist once or use bounded generated-code allocation",
+            "Map only duplicate aliases to HTTP 409",
+        ],
+        "security_controls": [
+            "Reserved route values are blocked",
+            "Task-scoped hash-guarded modifications",
+        ],
+        "reliability_controls": [
+            "Database uniqueness remains authoritative",
+            "Unexpected database failures propagate",
+        ],
+        "observability_controls": ["Existing validation and audit evidence"],
+        "architecture_decisions": [
+            {
+                "decision": "Reuse UrlMapping.short_code for aliases.",
+                "rationale": "One unique namespace avoids a new model and migration.",
+                "alternatives": ["Separate alias table"],
+                "consequences": ["Aliases and generated codes cannot collide"],
+            }
+        ],
+        "risks": ["Concurrent alias creation must distinguish duplicates from other failures."],
+        "trade_offs": ["Lowercase normalization makes alias uniqueness case-insensitive."],
+        "limitations": [
+            "No analytics, expiration, authentication, ownership, alias management, or UI."
+        ],
         "implementation_feasible": True,
         "status": "DESIGN_COMPLETE",
     }
@@ -271,6 +429,95 @@ def brownfield_plan() -> dict[str, Any]:
         "high_risk_tasks": ["TASK-003"],
         "assumptions": ["The copied Greenfield baseline is immutable at its source."],
         "implementation_risks": ["Existing redirect behavior must remain compatible."],
+        "status": "PLAN_COMPLETE",
+    }
+
+
+def alias_plan() -> dict[str, Any]:
+    tasks = [
+        _task(
+            "TASK-001",
+            "Verify repository baseline",
+            "SETUP",
+            [],
+            [],
+            ["README.md"],
+            ["TARGET_IMPORT_CHECK", "TARGET_OPENAPI_CHECK"],
+        ),
+        _task(
+            "TASK-002",
+            "Extend request schema and alias validation",
+            "IMPLEMENTATION",
+            ["TASK-001"],
+            ["app/schemas.py", "app/short_code_generator.py"],
+            ["app/schemas.py", "app/short_code_generator.py"],
+            ["TARGET_IMPORT_CHECK"],
+        ),
+        _task(
+            "TASK-003",
+            "Enhance repository and service alias handling",
+            "IMPLEMENTATION",
+            ["TASK-002"],
+            ["app/service.py"],
+            ["app/repository.py", "app/service.py"],
+            ["TARGET_IMPORT_CHECK"],
+        ),
+        _task(
+            "TASK-004",
+            "Integrate optional custom alias API endpoint",
+            "INTEGRATION",
+            ["TASK-003"],
+            ["app/api/routes.py"],
+            ["app/api/routes.py"],
+            ["TARGET_IMPORT_CHECK", "TARGET_OPENAPI_CHECK"],
+        ),
+        _task(
+            "TASK-005",
+            "Add alias and generated-code regression tests",
+            "TESTING",
+            ["TASK-004"],
+            ["tests/test_api.py"],
+            ["tests/test_api.py"],
+            ["PYTEST"],
+        ),
+        _task(
+            "TASK-006",
+            "Update alias release documentation",
+            "DOCUMENTATION",
+            ["TASK-005"],
+            ["README.md", "docs/change-summary.md", "docs/known-limitations.md"],
+            ["README.md", "docs"],
+            ["RUFF_CHECK"],
+        ),
+        _task(
+            "TASK-007",
+            "Run final validation",
+            "VALIDATION",
+            ["TASK-006"],
+            [],
+            [],
+            [
+                "TARGET_IMPORT_CHECK",
+                "TARGET_OPENAPI_CHECK",
+                "RUFF_CHECK",
+                "PYTEST",
+                "ALEMBIC_UPGRADE_HEAD",
+                "ALEMBIC_DOWNGRADE_BASE",
+                "ALEMBIC_UPGRADE_HEAD",
+                "ALEMBIC_CURRENT",
+            ],
+        ),
+    ]
+    order = [task["task_id"] for task in tasks]
+    return {
+        "plan_summary": "Add clarified custom aliases without changing persistence schema.",
+        "tasks": tasks,
+        "execution_order": order,
+        "parallel_groups": [],
+        "critical_path": order,
+        "high_risk_tasks": [],
+        "assumptions": ["The copied Greenfield short_code uniqueness constraint is reusable."],
+        "implementation_risks": ["Concurrent duplicate aliases require precise error mapping."],
         "status": "PLAN_COMPLETE",
     }
 
@@ -675,6 +922,229 @@ def test_click_count_and_stats(client):
 }
 
 
+ALIAS_REPLACEMENTS = {
+    "app/schemas.py": """import re
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, field_validator
+
+ALIAS_PATTERN = re.compile(r"^[a-z0-9_-]+$")
+RESERVED_ALIASES = {"api", "docs", "openapi.json", "health"}
+
+
+class UrlCreate(BaseModel):
+    original_url: str
+    custom_alias: str | None = None
+
+    @field_validator("original_url", mode="before")
+    @classmethod
+    def validate_url(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("original_url must be a non-empty HTTP or HTTPS URL")
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("original_url must be an absolute HTTP or HTTPS URL")
+        return normalized
+
+    @field_validator("custom_alias", mode="before")
+    @classmethod
+    def validate_custom_alias(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("custom_alias must be a string")
+        normalized = value.strip().lower()
+        if not 4 <= len(normalized) <= 30:
+            raise ValueError("custom_alias must contain between 4 and 30 characters")
+        if normalized in RESERVED_ALIASES:
+            raise ValueError("custom_alias is reserved")
+        if ALIAS_PATTERN.fullmatch(normalized) is None:
+            raise ValueError(
+                "custom_alias may contain lowercase letters, digits, hyphen, and underscore"
+            )
+        return normalized
+
+
+class UrlResponse(BaseModel):
+    original_url: str
+    short_code: str
+    short_url: str
+""",
+    "app/short_code_generator.py": """import secrets
+import string
+
+ALPHABET = string.ascii_lowercase + string.digits
+
+
+def generate_short_code(length: int = 8) -> str:
+    return "".join(secrets.choice(ALPHABET) for _ in range(length))
+""",
+    "app/service.py": """from collections.abc import Callable
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app import repository
+from app.models import UrlMapping
+from app.short_code_generator import generate_short_code
+
+
+class CollisionExhaustedError(Exception):
+    pass
+
+
+class AliasConflictError(Exception):
+    pass
+
+
+def _create_alias(session: Session, original_url: str, custom_alias: str) -> UrlMapping:
+    if repository.find_by_code(session, custom_alias) is not None:
+        raise AliasConflictError
+    try:
+        return repository.create_mapping(session, original_url, custom_alias)
+    except IntegrityError as exc:
+        session.rollback()
+        if repository.find_by_code(session, custom_alias) is not None:
+            raise AliasConflictError from exc
+        raise
+
+
+def create_short_url(
+    session: Session,
+    original_url: str,
+    code_factory: Callable[[], str] = generate_short_code,
+    custom_alias: str | None = None,
+) -> UrlMapping:
+    if custom_alias is not None:
+        return _create_alias(session, original_url, custom_alias)
+    for _ in range(5):
+        code = code_factory()
+        if repository.find_by_code(session, code) is not None:
+            continue
+        try:
+            return repository.create_mapping(session, original_url, code)
+        except IntegrityError:
+            session.rollback()
+    raise CollisionExhaustedError
+""",
+    "app/api/routes.py": """from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from app import repository
+from app.database import get_db
+from app.schemas import UrlCreate, UrlResponse
+from app.service import AliasConflictError, CollisionExhaustedError, create_short_url
+
+router = APIRouter()
+
+
+@router.post("/api/v1/urls", response_model=UrlResponse, status_code=201)
+def create_url(payload: UrlCreate, request: Request, session: Session = Depends(get_db)) -> UrlResponse:
+    try:
+        item = create_short_url(
+            session,
+            payload.original_url,
+            custom_alias=payload.custom_alias,
+        )
+    except AliasConflictError as exc:
+        raise HTTPException(status_code=409, detail="Custom alias already exists") from exc
+    except CollisionExhaustedError as exc:
+        raise HTTPException(status_code=503, detail="Unable to generate a unique short code") from exc
+    base = str(request.base_url).rstrip("/")
+    return UrlResponse(
+        original_url=item.original_url,
+        short_code=item.short_code,
+        short_url=f"{base}/{item.short_code}",
+    )
+
+
+@router.get("/{short_code}")
+def redirect(short_code: str, session: Session = Depends(get_db)) -> RedirectResponse:
+    item = repository.find_by_code(session, short_code)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Short URL not found")
+    return RedirectResponse(item.original_url, status_code=307)
+""",
+    "tests/test_api.py": GREEN_FILES["tests/test_api.py"]
+    + """
+
+def test_optional_generated_code_behavior_is_preserved(client):
+    created = client.post("/api/v1/urls", json={"original_url": "https://generated.example"})
+    assert created.status_code == 201
+    code = created.json()["short_code"]
+    assert len(code) == 8
+    assert code.isalnum()
+    redirected = client.get(f"/{code}", follow_redirects=False)
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "https://generated.example"
+
+
+def test_custom_alias_is_normalized_and_redirects(client):
+    created = client.post(
+        "/api/v1/urls",
+        json={"original_url": "https://example.com", "custom_alias": "  My-Alias  "},
+    )
+    assert created.status_code == 201
+    assert created.json() == {
+        "original_url": "https://example.com",
+        "short_code": "my-alias",
+        "short_url": "http://testserver/my-alias",
+    }
+    redirected = client.get("/my-alias", follow_redirects=False)
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "https://example.com"
+
+
+def test_alias_uniqueness_is_case_insensitive(client):
+    first = client.post(
+        "/api/v1/urls",
+        json={"original_url": "https://one.example", "custom_alias": "Case-Alias"},
+    )
+    duplicate = client.post(
+        "/api/v1/urls",
+        json={"original_url": "https://two.example", "custom_alias": "CASE-ALIAS"},
+    )
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {"detail": "Custom alias already exists"}
+
+
+def test_invalid_and_reserved_aliases_are_rejected(client):
+    aliases = [
+        "abc",
+        "a" * 31,
+        "bad alias",
+        "bad.alias",
+        "api",
+        "docs",
+        "openapi.json",
+        "health",
+    ]
+    for alias in aliases:
+        response = client.post(
+            "/api/v1/urls",
+            json={"original_url": "https://example.com", "custom_alias": alias},
+        )
+        assert response.status_code == 422
+""",
+    "README.md": """# Scripted URL Shortener
+
+The create endpoint accepts an optional custom_alias. Aliases are trimmed, lowercased,
+limited to 4-30 lowercase letters, digits, hyphens, or underscores, and share the
+existing short-code namespace. Run Alembic, Uvicorn, Pytest, and Ruff locally.
+""",
+    "docs/change-summary.md": (
+        "# Change Summary\n\nAdded clarified optional custom aliases without a schema change.\n"
+    ),
+    "docs/known-limitations.md": (
+        "# Known Limitations\n\nNo analytics, expiration, authentication, ownership, "
+        "alias management, cache, UI, or cloud deployment.\n"
+    ),
+}
+
+
 ANALYTICS_MIGRATION = """import sqlalchemy as sa
 
 from alembic import op
@@ -784,6 +1254,50 @@ def coding(payload: dict[str, Any], *, brownfield: bool) -> dict[str, Any]:
         "migrations_created": [edit["relative_path"] for edit in edits if "versions/" in edit["relative_path"]],
         "assumptions": ["Current repository hashes were supplied by the controlled context."],
         "risks": [],
+        "dependency_changes": [],
+        "high_risk_change": False,
+        "high_risk_reason": None,
+        "status": "READY_TO_APPLY",
+        "replan_reason": None,
+    }
+
+
+def alias_coding(payload: dict[str, Any]) -> dict[str, Any]:
+    task_id = payload.get("active_task", {}).get("task_id", "")
+    hashes = payload.get("file_hashes", {})
+    task_files = {
+        "TASK-001": [],
+        "TASK-002": ["app/schemas.py", "app/short_code_generator.py"],
+        "TASK-003": ["app/service.py"],
+        "TASK-004": ["app/api/routes.py"],
+        "TASK-005": ["tests/test_api.py"],
+        "TASK-006": [
+            "README.md",
+            "docs/change-summary.md",
+            "docs/known-limitations.md",
+        ],
+        "TASK-007": [],
+    }
+    edits = [
+        _modify(path, ALIAS_REPLACEMENTS[path], hashes)
+        for path in task_files.get(task_id, [])
+    ]
+    return {
+        "implementation_summary": (
+            "Apply the clarified custom-alias change to current hash-guarded files."
+        ),
+        "change_plan": [
+            {"task_id": task_id, "paths": [edit["relative_path"] for edit in edits]}
+        ],
+        "structured_edits": edits,
+        "tests_created_or_modified": [
+            edit["relative_path"]
+            for edit in edits
+            if edit["relative_path"].startswith("tests/")
+        ],
+        "migrations_created": [],
+        "assumptions": ["The existing short_code uniqueness constraint is authoritative."],
+        "risks": ["Concurrent duplicate aliases are translated only after uniqueness evidence."],
         "dependency_changes": [],
         "high_risk_change": False,
         "high_risk_reason": None,

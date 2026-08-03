@@ -1,69 +1,15 @@
-import hashlib
-import subprocess
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.agents.scripted_provider import ScriptedProvider
+from tests.integration.scripted_workflow_helpers import (
+    BROWNFIELD_REQUIREMENT,
+    GREENFIELD_REQUIREMENT,
+    create_scripted_workflow,
+    git_output,
+    snapshot_workspace,
+)
 from tests.phase3_helpers import approve_pending
-
-GREENFIELD_REQUIREMENT = """
-Build a FastAPI URL shortener with SQLite, SQLAlchemy 2.x, and Alembic.
-Implement POST /api/v1/urls and GET /{short_code}. Use eight-character
-secrets-based alphanumeric codes, five collision attempts, HTTP 503 on
-exhaustion, HTTP 404 for missing codes, HTTP 307 redirects, Pytest, and Ruff.
-"""
-
-BROWNFIELD_REQUIREMENT = """
-Enhance the existing URL-shortener application with click analytics.
-Add a click_count column with default 0, increment it on successful redirects,
-and add GET /api/v1/urls/{short_code}/stats. Create a new Alembic migration,
-preserve existing behavior, and add regression tests.
-"""
-
-
-def _create(
-    client: TestClient,
-    *,
-    scenario_type: str,
-    workspace: str,
-    scripted_scenario: str,
-    requirement: str,
-    source: str | None = None,
-) -> dict:
-    payload = {
-        "scenarioType": scenario_type,
-        "workspaceName": workspace,
-        "scriptedScenario": scripted_scenario,
-        "requirement": requirement,
-    }
-    if source:
-        payload["sourceWorkspace"] = source
-    response = client.post("/api/v1/workflows", json=payload)
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def _snapshot(path: Path) -> dict[str, str]:
-    return {
-        item.relative_to(path).as_posix(): hashlib.sha256(item.read_bytes()).hexdigest()
-        for item in sorted(path.rglob("*"))
-        if item.is_file() and ".git" not in item.relative_to(path).parts
-    }
-
-
-def _git_output(repository: Path, *arguments: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repository), *arguments],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        shell=False,
-        timeout=20,
-    )
-    return result.stdout.strip()
 
 
 def test_scripted_greenfield_then_brownfield_reaches_ready(
@@ -78,7 +24,7 @@ def test_scripted_greenfield_then_brownfield_reaches_ready(
         return original_generate(self, **kwargs)
 
     monkeypatch.setattr(ScriptedProvider, "generate", capture)
-    green = _create(
+    green = create_scripted_workflow(
         client,
         scenario_type="GREENFIELD",
         workspace="scripted-url-green",
@@ -94,10 +40,10 @@ def test_scripted_greenfield_then_brownfield_reaches_ready(
 
     workspace_root = app.state.workflow_runtime.settings.WORKSPACE_ROOT
     source = workspace_root / "scripted-url-green"
-    source_before = _snapshot(source)
-    source_status_before = _git_output(source, "status", "--porcelain")
+    source_before = snapshot_workspace(source)
+    source_status_before = git_output(source, "status", "--porcelain")
 
-    brown = _create(
+    brown = create_scripted_workflow(
         client,
         scenario_type="BROWNFIELD",
         workspace="scripted-url-brown",
@@ -138,9 +84,9 @@ def test_scripted_greenfield_then_brownfield_reaches_ready(
     brown = approve_pending(client, brown)
     assert brown["status"] == "READY"
 
-    assert _snapshot(source) == source_before
-    assert _git_output(source, "status", "--porcelain") == source_status_before
-    assert _git_output(destination, "remote") == ""
+    assert snapshot_workspace(source) == source_before
+    assert git_output(source, "status", "--porcelain") == source_status_before
+    assert git_output(destination, "remote") == ""
     assert (destination / "alembic" / "versions" / "0002_add_click_count.py").is_file()
 
     brown_design = next(

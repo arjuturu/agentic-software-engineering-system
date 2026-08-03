@@ -2,6 +2,7 @@ import re
 from enum import StrEnum
 
 from app.scenarios.url_shortener.profile import (
+    URL_SHORTENER_AMBIGUOUS_PROFILE,
     URL_SHORTENER_BROWNFIELD_PROFILE,
     URL_SHORTENER_PROFILE,
 )
@@ -11,6 +12,7 @@ class ScenarioProfileId(StrEnum):
     GENERIC = "GENERIC"
     URL_SHORTENER_GREENFIELD = "URL_SHORTENER_GREENFIELD"
     URL_SHORTENER_BROWNFIELD = "URL_SHORTENER_BROWNFIELD"
+    URL_SHORTENER_AMBIGUOUS_ALIASES = "URL_SHORTENER_AMBIGUOUS_ALIASES"
 
 
 _URL_SHORTENER = re.compile(r"\b(url short(?:en(?:er|ing)?)?|short url|short link)\b", re.I)
@@ -30,6 +32,8 @@ def resolve_scenario_profile(scenario_type: str, requirement: str) -> dict:
     supporting_matches = sum(bool(pattern.search(requirement)) for pattern in _SUPPORTING_EVIDENCE)
     if normalized_type == "BROWNFIELD":
         return URL_SHORTENER_BROWNFIELD_PROFILE.model_dump(mode="json")
+    if normalized_type == "AMBIGUOUS":
+        return URL_SHORTENER_AMBIGUOUS_PROFILE.model_dump(mode="json")
     if normalized_type == "GREENFIELD" and strong_match and supporting_matches >= 1:
         return URL_SHORTENER_PROFILE.model_dump(mode="json")
     return {

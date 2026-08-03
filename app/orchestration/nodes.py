@@ -382,7 +382,7 @@ class WorkflowNodes:
         }
 
     def workspace_setup(self, state: dict) -> dict:
-        if state.get("scenario_type") == "BROWNFIELD":
+        if state.get("scenario_type") in {"BROWNFIELD", "AMBIGUOUS"}:
             return self._brownfield_workspace_setup(state)
         created = self.workspace.create_workspace(state["workspace_name"])
         if created.status != ToolStatus.SUCCESS or not created.created:
@@ -507,7 +507,7 @@ class WorkflowNodes:
     def repository_analysis(self, state: dict) -> dict:
         repository = Path(state["repository_path"])
         scan = self.scanner.scan(repository).model_dump(mode="json")
-        if state.get("scenario_type") == "BROWNFIELD":
+        if state.get("scenario_type") in {"BROWNFIELD", "AMBIGUOUS"}:
             relevant_files: list[dict[str, str]] = []
             for relative_path in self.scanner.list_files(repository):
                 path = repository / relative_path
@@ -1079,6 +1079,7 @@ class WorkflowNodes:
         if contract_payload["profile_id"] in {
             "URL_SHORTENER_GREENFIELD",
             "URL_SHORTENER_BROWNFIELD",
+            "URL_SHORTENER_AMBIGUOUS_ALIASES",
         }:
             if state.get("execution_mode") == "OPENAI":
                 contract_payload = self.target_validator.validate(

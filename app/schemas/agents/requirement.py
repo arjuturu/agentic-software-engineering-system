@@ -12,7 +12,7 @@ class RequirementStatus(StrEnum):
 
 
 class ClarificationQuestion(BaseModel):
-    question_id: str = Field(pattern=r"^Q-[0-9]{3}$")
+    question_id: str = Field(pattern=r"^Q-(?:[0-9]{3}|[A-Z]+-[0-9]{3})$")
     question: str = Field(min_length=1, max_length=500)
 
 

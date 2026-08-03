@@ -22,15 +22,20 @@ class WorkflowCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_brownfield_source(self) -> "WorkflowCreateRequest":
-        if self.scenario_type == ScenarioType.BROWNFIELD and not self.source_workspace:
-            raise ValueError("sourceWorkspace is required for BROWNFIELD workflows")
+        if self.scenario_type in {
+            ScenarioType.BROWNFIELD,
+            ScenarioType.AMBIGUOUS,
+        } and not self.source_workspace:
+            raise ValueError("sourceWorkspace is required for source-based workflows")
         return self
 
 
 class ClarificationAnswer(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    question_id: str = Field(alias="questionId", pattern=r"^Q-[0-9]{3}$")
+    question_id: str = Field(
+        alias="questionId", pattern=r"^Q-(?:[0-9]{3}|[A-Z]+-[0-9]{3})$"
+    )
     answer: str = Field(min_length=1, max_length=2000)
 
 

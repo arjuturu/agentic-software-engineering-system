@@ -80,3 +80,25 @@ URL_SHORTENER_BROWNFIELD_PROFILE = ScenarioProfile(
         "regression tests and approved quality checks pass",
     ),
 )
+
+
+URL_SHORTENER_AMBIGUOUS_PROFILE = ScenarioProfile(
+    profile_id="URL_SHORTENER_AMBIGUOUS_ALIASES",
+    scenario_type="AMBIGUOUS",
+    summary=(
+        "Clarify and implement optional custom aliases against an existing governed "
+        "URL-shortener repository."
+    ),
+    required_capabilities=(),
+    allowed_paths=URL_SHORTENER_BROWNFIELD_PROFILE.allowed_paths,
+    path_policy_mode="SCENARIO_RESTRICTED",
+    validation_rules=(
+        "existing generated-code creation and redirect behavior remains valid",
+        "custom aliases follow the approved normalization and validation rules",
+        "custom aliases and generated codes share one unique namespace",
+        "target application imports and OpenAPI generation pass",
+        "target repository has no remote and no committed database files",
+        "restricted secret and Git configuration files are absent",
+        "regression tests, Ruff, and the existing migration cycle pass",
+    ),
+)

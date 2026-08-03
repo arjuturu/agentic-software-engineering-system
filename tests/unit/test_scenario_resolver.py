@@ -37,3 +37,13 @@ def test_brownfield_uses_repository_aware_url_shortener_profile() -> None:
 
     assert profile["profile_id"] == "URL_SHORTENER_BROWNFIELD"
     assert profile["required_capabilities"] == []
+
+
+def test_ambiguous_aliases_use_source_based_url_shortener_profile() -> None:
+    profile = resolve_scenario_profile(
+        "AMBIGUOUS", "Add support for optional custom aliases."
+    )
+
+    assert profile["profile_id"] == "URL_SHORTENER_AMBIGUOUS_ALIASES"
+    assert profile["scenario_type"] == "AMBIGUOUS"
+    assert profile["required_capabilities"] == []

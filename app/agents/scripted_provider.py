@@ -4,6 +4,10 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.agents.scripted_url_shortener import (
+    alias_coding,
+    alias_design,
+    alias_plan,
+    alias_requirement,
     brownfield_plan,
     greenfield_plan,
 )
@@ -74,6 +78,8 @@ class ScriptedProvider:
                 brownfield=scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
             )
         answers = payload.get("clarification_answers", [])
+        if scenario == ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES:
+            return alias_requirement(requirement, answers)
         if scenario == ScriptedScenario.REQUIREMENT_REJECTED:
             status = "REJECTED_AS_UNSAFE"
             questions: list[dict[str, str]] = []
@@ -125,6 +131,8 @@ class ScriptedProvider:
             return url_shortener_design(
                 brownfield=scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS
             )
+        if scenario == ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES:
+            return alias_design()
         del payload, scenario
         return {
             "architecture_summary": (
@@ -181,6 +189,8 @@ class ScriptedProvider:
             return greenfield_plan()
         if scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS:
             return brownfield_plan()
+        if scenario == ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES:
+            return alias_plan()
         del retry_number
         package_name = (
             "app"
@@ -298,6 +308,7 @@ class ScriptedProvider:
         url_shortener = scenario in {
             ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH,
             ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
+            ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES,
         }
         package_name = (
             "app"
@@ -401,6 +412,8 @@ class ScriptedProvider:
             return url_shortener_coding(payload, brownfield=False)
         if scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS:
             return url_shortener_coding(payload, brownfield=True)
+        if scenario == ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES:
+            return alias_coding(payload)
         package_name = (
             "app"
             if payload.get("scenario_profile", {}).get("profile_id")
@@ -555,20 +568,36 @@ class ScriptedProvider:
     def _release(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
-        del scenario, retry_number
+        del retry_number
         validation = payload.get("validation_result", {})
         passed = validation.get("status") == "VALIDATION_PASSED"
+        alias_scenario = scenario == ScriptedScenario.URL_SHORTENER_AMBIGUOUS_ALIASES
         return {
-            "change_summary": "Created a governed generic Python sample.",
+            "change_summary": (
+                "Added clarified optional custom aliases to the governed URL shortener."
+                if alias_scenario
+                else "Created a governed generic Python sample."
+            ),
             "requirement_completion_summary": "Approved acceptance criteria were evaluated.",
             "architecture_summary": "A small package and isolated tests were created.",
-            "implementation_summary": "Structured edits were applied and committed locally.",
+            "implementation_summary": (
+                "Hash-guarded edits added alias validation and shared-namespace persistence."
+                if alias_scenario
+                else "Structured edits were applied and committed locally."
+            ),
             "testing_summary": "Actual validation evidence was consumed.",
             "security_summary": "Path, command, and local Git policies remained active.",
             "changed_files": payload.get("context", {}).get("changed_files", []),
             "generated_artifacts": payload.get("context", {}).get("artifacts", []),
             "known_risks": [],
-            "known_limitations": ["The fixture is intentionally generic."],
+            "known_limitations": (
+                [
+                    "No analytics, expiration, authentication, ownership, alias management, "
+                    "cache, UI, or cloud support."
+                ]
+                if alias_scenario
+                else ["The fixture is intentionally generic."]
+            ),
             "conditions_for_release": [],
             "rollback_instructions": ["Restore tracked files to the recorded baseline commit."],
             "recommended_status": "READY" if passed else "NOT_READY",
