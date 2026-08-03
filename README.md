@@ -7,7 +7,7 @@ human approval gates, controlled repository changes, durable state, and evidence
 > LLMs propose; deterministic controls decide. Humans approve high-impact transitions and own
 > final quality.
 
-## Assignment capabilities
+## Core capabilities
 
 - Requirement analysis, normalization, ambiguity detection, and clarification.
 - Design and dependency-aware Planning Agents with validated structured outputs.
@@ -22,22 +22,27 @@ human approval gates, controlled repository changes, durable state, and evidence
 
 ## Architecture
 
-| Component | Responsibility | Main implementation |
-| --- | --- | --- |
-| Interaction layer | Swagger, API clients, and demo scripts | app/main.py, app/api/, scripts/ |
-| FastAPI control plane | HTTP lifecycle and safe errors | app/main.py, app/api/ |
-| Workflow service | Workflow creation, resume, retry, snapshots | app/services/workflow_service.py |
-| Scenario resolver | Selects generic or URL-shortener policy profiles | app/scenarios/resolver.py |
-| LangGraph | Durable state graph and conditional routing | app/orchestration/graph.py |
-| Provider abstraction | Typed model-output boundary | app/agents/provider.py |
-| Scripted provider | Repeatable offline agent responses | app/agents/scripted_provider.py |
-| OpenAI provider | Experimental native structured output | app/agents/openai_provider.py |
-| Human gates | Interrupt/resume with IDs and state versions | app/orchestration/approvals.py |
-| Deterministic controls | Plan, dependency, path, edit, test, and migration checks | app/orchestration/, app/tools/ |
-| Governed Execution Layer | Applies only validated, scoped local changes | app/tools/controlled_editor.py |
-| Workflow database | Application metadata and audit history | app/database/models/ |
-| Checkpoint database | LangGraph continuation state | app/orchestration/checkpoint.py |
-| Evidence layer | Versioned artifacts and reliability reports | app/artifacts/, app/services/reliability_metrics.py |
+### System components and responsibilities
+
+| Component | Responsibility |
+| --- | --- |
+| Interaction layer | Swagger, API clients, and demo scripts |
+| FastAPI control plane | HTTP lifecycle and safe errors |
+| Workflow service | Workflow creation, resume, retry, and snapshots |
+| Scenario resolver | Selects generic or URL-shortener policy profiles |
+| LangGraph | Durable state graph and conditional routing |
+| Provider abstraction | Typed model-output boundary |
+| Scripted provider | Repeatable offline agent responses |
+| OpenAI provider | Experimental native structured output |
+| Human gates | Interrupt/resume with IDs and state versions |
+| Deterministic controls | Plan, dependency, path, edit, test, and migration checks |
+| Governed Execution Layer | Applies only validated, scoped local changes |
+| Workflow database | Application metadata and audit history |
+| Checkpoint database | LangGraph continuation state |
+| Evidence layer | Versioned artifacts and reliability reports |
+
+See the [system architecture diagram](deliverables/images/system-architecture.jpg) for the
+component layout and numbered execution flows.
 
 ## Scenario topology
 
@@ -55,11 +60,13 @@ not build on Brownfield.
 Scripted mode uses deterministic pre-authored model responses, makes no OpenAI calls, and exercises
 the real orchestration, approvals, Git, ControlledEditor, migrations, tests, artifacts, audit, and
 release gates. It is the recommended repeatable evaluation mode and does not download generated
-code from GitHub.
+code from GitHub. The documented startup and demo commands explicitly set LLM_MODE to SCRIPTED so
+a local environment override cannot unintentionally enable model calls.
 
 OpenAI mode uses real model calls through the same typed schemas and deterministic governance. It
 is non-deterministic and experimental: a workflow may clarify, block, retry, replan, roll back,
-safely stop, or fail. Never commit credentials.
+safely stop, or fail. OpenAI mode must be selected intentionally and may incur provider charges.
+Never commit credentials.
 
 ## Prerequisites and setup
 
@@ -78,6 +85,7 @@ Copy-Item .env.example .env
 python scripts/init_local.py
 alembic upgrade head
 python scripts/verify_environment.py
+$env:LLM_MODE = "SCRIPTED"
 python -m uvicorn app.main:app --reload
 ~~~
 
@@ -92,6 +100,7 @@ cp .env.example .env
 python scripts/init_local.py
 alembic upgrade head
 python scripts/verify_environment.py
+export LLM_MODE=SCRIPTED
 python -m uvicorn app.main:app --reload
 ~~~
 
@@ -105,6 +114,8 @@ clarification, and submits the workflow approval gates. It does not call OpenAI.
 and stops Uvicorn unless -UseExistingServer is supplied.
 
 ~~~powershell
+$env:LLM_MODE = "SCRIPTED"
+
 # Run Greenfield, Brownfield, and Ambiguous in sequence.
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Automatic -Scenario All -WorkspacePrefix automatic-demo
 
@@ -123,6 +134,8 @@ Interactive mode uses the same deterministic workflow but asks the evaluator to 
 clarifications and make approval decisions.
 
 ~~~powershell
+$env:LLM_MODE = "SCRIPTED"
+
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Greenfield -WorkspacePrefix interactive-demo
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Brownfield -WorkspacePrefix interactive-demo -SourceWorkspace 'your-greenfield-workspace-name'
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Ambiguous -WorkspacePrefix interactive-demo -SourceWorkspace 'your-greenfield-workspace-name'
@@ -136,11 +149,13 @@ Filesystem inspection commands may use the full generated workspace path.
 Start the API and open http://127.0.0.1:8000/docs:
 
 ~~~powershell
+$env:LLM_MODE = "SCRIPTED"
 python -m uvicorn app.main:app --reload
 ~~~
 
 Expand POST /api/v1/workflows, select **Try it out**, and submit one of the following bodies.
-Use a unique workspaceName for every run.
+Use a unique workspaceName for every run. These Swagger examples use scriptedScenario values and
+therefore require the scripted server mode shown above.
 
 ### Greenfield request
 
