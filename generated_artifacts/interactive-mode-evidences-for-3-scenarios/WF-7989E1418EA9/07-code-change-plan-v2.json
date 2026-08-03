@@ -1,0 +1,85 @@
+{
+  "assumptions": [
+    "Current repository hashes were supplied by the controlled context."
+  ],
+  "change_plan": [
+    {
+      "paths": [
+        "app/__init__.py",
+        "app/database.py",
+        "app/models.py",
+        "alembic/env.py",
+        "alembic/script.py.mako",
+        "alembic/versions/0001_create_url_mappings.py"
+      ],
+      "task_id": "TASK-002"
+    }
+  ],
+  "dependency_changes": [],
+  "high_risk_change": false,
+  "high_risk_reason": null,
+  "implementation_summary": "Apply the deterministic task-scoped URL-shortener change.",
+  "migrations_created": [
+    "alembic/versions/0001_create_url_mappings.py"
+  ],
+  "replan_reason": null,
+  "risks": [],
+  "status": "READY_TO_APPLY",
+  "structured_edits": [
+    {
+      "content": "",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "app/__init__.py",
+      "replacement_text": null
+    },
+    {
+      "content": "from collections.abc import Generator\n\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import DeclarativeBase, Session, sessionmaker\n\nDATABASE_URL = \"sqlite:///./url_shortener.db\"\nengine = create_engine(DATABASE_URL, connect_args={\"check_same_thread\": False})\nSessionLocal = sessionmaker(bind=engine, expire_on_commit=False)\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\ndef get_db() -> Generator[Session, None, None]:\n    session = SessionLocal()\n    try:\n        yield session\n    finally:\n        session.close()\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "app/database.py",
+      "replacement_text": null
+    },
+    {
+      "content": "from sqlalchemy import String\nfrom sqlalchemy.orm import Mapped, mapped_column\n\nfrom app.database import Base\n\n\nclass UrlMapping(Base):\n    __tablename__ = \"url_mappings\"\n\n    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)\n    original_url: Mapped[str] = mapped_column(String(2048), nullable=False)\n    short_code: Mapped[str] = mapped_column(String(8), nullable=False, unique=True, index=True)\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "app/models.py",
+      "replacement_text": null
+    },
+    {
+      "content": "from sqlalchemy import engine_from_config, pool\n\nfrom alembic import context\nfrom app import models  # noqa: F401\nfrom app.database import Base\n\nconfig = context.config\ntarget_metadata = Base.metadata\n\n\ndef run_migrations_offline() -> None:\n    context.configure(url=config.get_main_option(\"sqlalchemy.url\"), target_metadata=target_metadata, literal_binds=True)\n    with context.begin_transaction():\n        context.run_migrations()\n\n\ndef run_migrations_online() -> None:\n    connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix=\"sqlalchemy.\", poolclass=pool.NullPool)\n    with connectable.connect() as connection:\n        context.configure(connection=connection, target_metadata=target_metadata)\n        with context.begin_transaction():\n            context.run_migrations()\n\n\nif context.is_offline_mode():\n    run_migrations_offline()\nelse:\n    run_migrations_online()\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "alembic/env.py",
+      "replacement_text": null
+    },
+    {
+      "content": "\"\"\"${message}\"\"\"\nfrom alembic import op\nimport sqlalchemy as sa\n${imports if imports else \"\"}\nrevision = ${repr(up_revision)}\ndown_revision = ${repr(down_revision)}\nbranch_labels = ${repr(branch_labels)}\ndepends_on = ${repr(depends_on)}\n\ndef upgrade() -> None:\n    ${upgrades if upgrades else \"pass\"}\n\ndef downgrade() -> None:\n    ${downgrades if downgrades else \"pass\"}\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "alembic/script.py.mako",
+      "replacement_text": null
+    },
+    {
+      "content": "import sqlalchemy as sa\n\nfrom alembic import op\n\nrevision = \"0001\"\ndown_revision = None\nbranch_labels = None\ndepends_on = None\n\n\ndef upgrade() -> None:\n    op.create_table(\"url_mappings\", sa.Column(\"id\", sa.Integer(), primary_key=True), sa.Column(\"original_url\", sa.String(2048), nullable=False), sa.Column(\"short_code\", sa.String(8), nullable=False), sa.UniqueConstraint(\"short_code\", name=\"uq_url_mappings_short_code\"))\n    op.create_index(\"ix_url_mappings_short_code\", \"url_mappings\", [\"short_code\"], unique=True)\n\n\ndef downgrade() -> None:\n    op.drop_index(\"ix_url_mappings_short_code\", table_name=\"url_mappings\")\n    op.drop_table(\"url_mappings\")\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "alembic/versions/0001_create_url_mappings.py",
+      "replacement_text": null
+    }
+  ],
+  "tests_created_or_modified": []
+}

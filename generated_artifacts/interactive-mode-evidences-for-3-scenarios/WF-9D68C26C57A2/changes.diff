@@ -1,0 +1,15 @@
+diff --git a/app/models.py b/app/models.py
+index 21be098..5470c93 100644
+--- a/app/models.py
++++ b/app/models.py
+@@ -1,4 +1,4 @@
+-from sqlalchemy import String
++from sqlalchemy import Integer, String
+ from sqlalchemy.orm import Mapped, mapped_column
+ 
+ from app.database import Base
+@@ -10,3 +10,4 @@ class UrlMapping(Base):
+     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+     original_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+     short_code: Mapped[str] = mapped_column(String(8), nullable=False, unique=True, index=True)
++    click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -1,0 +1,28 @@
+diff --git a/app/repository.py b/app/repository.py
+index a6093d3..2efcd9c 100644
+--- a/app/repository.py
++++ b/app/repository.py
+@@ -14,3 +14,10 @@ def create_mapping(session: Session, original_url: str, short_code: str) -> UrlM
+     session.commit()
+     session.refresh(item)
+     return item
++
++
++def increment_click_count(session: Session, item: UrlMapping) -> UrlMapping:
++    item.click_count += 1
++    session.commit()
++    session.refresh(item)
++    return item
+diff --git a/app/service.py b/app/service.py
+index 04359c1..f0313ac 100644
+--- a/app/service.py
++++ b/app/service.py
+@@ -22,3 +22,8 @@ def create_short_url(session: Session, original_url: str, code_factory: Callable
+         except IntegrityError:
+             session.rollback()
+     raise CollisionExhaustedError
++
++
++def resolve_and_count(session: Session, short_code: str) -> UrlMapping | None:
++    item = repository.find_by_code(session, short_code)
++    return repository.increment_click_count(session, item) if item is not None else None

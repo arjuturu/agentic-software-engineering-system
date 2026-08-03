@@ -1,0 +1,60 @@
+diff --git a/app/api/routes.py b/app/api/routes.py
+index 8b5456f..d435104 100644
+--- a/app/api/routes.py
++++ b/app/api/routes.py
+@@ -4,25 +4,37 @@ from sqlalchemy.orm import Session
+ 
+ from app import repository
+ from app.database import get_db
+-from app.schemas import UrlCreate, UrlResponse
+-from app.service import CollisionExhaustedError, create_short_url
++from app.schemas import UrlCreate, UrlResponse, UrlStatsResponse
++from app.service import CollisionExhaustedError, create_short_url, resolve_and_count
+ 
+ router = APIRouter()
+ 
+ 
++def _response(item, request: Request) -> dict:
++    base = str(request.base_url).rstrip("/")
++    return {"original_url": item.original_url, "short_code": item.short_code, "short_url": f"{base}/{item.short_code}"}
++
++
+ @router.post("/api/v1/urls", response_model=UrlResponse, status_code=201)
+-def create_url(payload: UrlCreate, request: Request, session: Session = Depends(get_db)) -> UrlResponse:
++def create_url(payload: UrlCreate, request: Request, session: Session = Depends(get_db)):
+     try:
+         item = create_short_url(session, payload.original_url)
+     except CollisionExhaustedError as exc:
+         raise HTTPException(status_code=503, detail="Unable to generate a unique short code") from exc
+-    base = str(request.base_url).rstrip("/")
+-    return UrlResponse(original_url=item.original_url, short_code=item.short_code, short_url=f"{base}/{item.short_code}")
++    return _response(item, request)
++
++
++@router.get("/api/v1/urls/{short_code}/stats", response_model=UrlStatsResponse)
++def stats(short_code: str, request: Request, session: Session = Depends(get_db)):
++    item = repository.find_by_code(session, short_code)
++    if item is None:
++        raise HTTPException(status_code=404, detail="Short URL not found")
++    return {**_response(item, request), "click_count": item.click_count}
+ 
+ 
+ @router.get("/{short_code}")
+ def redirect(short_code: str, session: Session = Depends(get_db)) -> RedirectResponse:
+-    item = repository.find_by_code(session, short_code)
++    item = resolve_and_count(session, short_code)
+     if item is None:
+         raise HTTPException(status_code=404, detail="Short URL not found")
+     return RedirectResponse(item.original_url, status_code=307)
+diff --git a/app/schemas.py b/app/schemas.py
+index 96ffdd1..261de26 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -22,3 +22,7 @@ class UrlResponse(BaseModel):
+     original_url: str
+     short_code: str
+     short_url: str
++
++
++class UrlStatsResponse(UrlResponse):
++    click_count: int

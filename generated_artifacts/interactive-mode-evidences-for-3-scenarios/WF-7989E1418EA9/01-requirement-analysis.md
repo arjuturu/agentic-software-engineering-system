@@ -1,0 +1,41 @@
+# Requirement Analysis
+
+- Workflow ID: WF-7989E1418EA9
+- Version: 1
+
+## Structured Evidence
+
+~~~json
+{
+  "acceptance_criteria": [
+    "Required HTTP routes and persistence behavior pass acceptance tests.",
+    "Alembic upgrade and downgrade pass from an empty SQLite database.",
+    "The application imports, OpenAPI renders, Pytest passes, and Ruff passes."
+  ],
+  "ambiguities": [],
+  "assumptions": [
+    "The workflow operates on a governed local repository."
+  ],
+  "clarification_questions": [],
+  "functional_requirements": [
+    "Create persistent short URLs.",
+    "Redirect existing short codes.",
+    "Validate collisions, migrations, tests, and linting."
+  ],
+  "material_ambiguity": false,
+  "non_functional_requirements": [
+    "Use FastAPI, SQLAlchemy 2.x, SQLite, Alembic, Pytest, and Ruff.",
+    "Remain deterministic and require no external services."
+  ],
+  "normalized_requirement": "Build a local URL-shortening API using FastAPI, SQLite, SQLAlchemy 2.x, and Alembic.\r\nSupport POST /api/v1/urls and GET /{short_code}.\r\nGenerate secure eight-character alphanumeric short codes using Python secrets.\r\nRetry collisions no more than five times.\r\nReturn the approved exact 404 and 503 responses.\r\nInclude tests and documentation.\r\nDo not add aliases, analytics, expiration, authentication, caching, UI, messaging, workers, or cloud deployment.",
+  "risk_level": "MEDIUM",
+  "risks": [
+    "Persistence migrations and redirect updates require regression coverage."
+  ],
+  "status": "READY_FOR_APPROVAL"
+}
+~~~
+
+## Evidence References
+
+- WF-7989E1418EA9/01-requirement-analysis.json

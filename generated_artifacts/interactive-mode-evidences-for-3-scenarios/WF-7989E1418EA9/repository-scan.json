@@ -1,0 +1,23 @@
+{
+  "current_branch": "agent/wf-7989e1418ea9-phase6-interactive-greenfield-20260803182759430",
+  "detected_migration_files": [],
+  "detected_project_files": [
+    "README.md"
+  ],
+  "detected_python_packages": [],
+  "detected_test_files": [],
+  "directory_count": 0,
+  "error": null,
+  "fastapi_files": [],
+  "file_count": 1,
+  "file_extensions": {
+    ".md": 1
+  },
+  "is_git_repository": true,
+  "repository_path": "phase6-interactive-greenfield-20260803182759430",
+  "repository_summary": "1 files, 0 directories, 1 project files",
+  "restricted_files_found": [],
+  "skipped_files": [],
+  "sqlalchemy_files": [],
+  "status": "SUCCESS"
+}

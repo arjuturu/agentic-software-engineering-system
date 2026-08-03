@@ -1,0 +1,68 @@
+diff --git a/tests/test_api.py b/tests/test_api.py
+index 2b3d3e8..152e4f9 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -14,3 +14,63 @@ def test_invalid_and_missing_urls(client):
+     missing = client.get("/UNKNOWN", follow_redirects=False)
+     assert missing.status_code == 404
+     assert missing.json() == {"detail": "Short URL not found"}
++
++
++def test_optional_generated_code_behavior_is_preserved(client):
++    created = client.post("/api/v1/urls", json={"original_url": "https://generated.example"})
++    assert created.status_code == 201
++    code = created.json()["short_code"]
++    assert len(code) == 8
++    assert code.isalnum()
++    redirected = client.get(f"/{code}", follow_redirects=False)
++    assert redirected.status_code == 307
++    assert redirected.headers["location"] == "https://generated.example"
++
++
++def test_custom_alias_is_normalized_and_redirects(client):
++    created = client.post(
++        "/api/v1/urls",
++        json={"original_url": "https://example.com", "custom_alias": "  My-Alias  "},
++    )
++    assert created.status_code == 201
++    assert created.json() == {
++        "original_url": "https://example.com",
++        "short_code": "my-alias",
++        "short_url": "http://testserver/my-alias",
++    }
++    redirected = client.get("/my-alias", follow_redirects=False)
++    assert redirected.status_code == 307
++    assert redirected.headers["location"] == "https://example.com"
++
++
++def test_alias_uniqueness_is_case_insensitive(client):
++    first = client.post(
++        "/api/v1/urls",
++        json={"original_url": "https://one.example", "custom_alias": "Case-Alias"},
++    )
++    duplicate = client.post(
++        "/api/v1/urls",
++        json={"original_url": "https://two.example", "custom_alias": "CASE-ALIAS"},
++    )
++    assert first.status_code == 201
++    assert duplicate.status_code == 409
++    assert duplicate.json() == {"detail": "Custom alias already exists"}
++
++
++def test_invalid_and_reserved_aliases_are_rejected(client):
++    aliases = [
++        "abc",
++        "a" * 31,
++        "bad alias",
++        "bad.alias",
++        "api",
++        "docs",
++        "openapi.json",
++        "health",
++    ]
++    for alias in aliases:
++        response = client.post(
++            "/api/v1/urls",
++            json={"original_url": "https://example.com", "custom_alias": alias},
++        )
++        assert response.status_code == 422

@@ -1,0 +1,37 @@
+diff --git a/app/api/routes.py b/app/api/routes.py
+index 8b5456f..8acc835 100644
+--- a/app/api/routes.py
++++ b/app/api/routes.py
+@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
+ from app import repository
+ from app.database import get_db
+ from app.schemas import UrlCreate, UrlResponse
+-from app.service import CollisionExhaustedError, create_short_url
++from app.service import AliasConflictError, CollisionExhaustedError, create_short_url
+ 
+ router = APIRouter()
+ 
+@@ -13,11 +13,21 @@ router = APIRouter()
+ @router.post("/api/v1/urls", response_model=UrlResponse, status_code=201)
+ def create_url(payload: UrlCreate, request: Request, session: Session = Depends(get_db)) -> UrlResponse:
+     try:
+-        item = create_short_url(session, payload.original_url)
++        item = create_short_url(
++            session,
++            payload.original_url,
++            custom_alias=payload.custom_alias,
++        )
++    except AliasConflictError as exc:
++        raise HTTPException(status_code=409, detail="Custom alias already exists") from exc
+     except CollisionExhaustedError as exc:
+         raise HTTPException(status_code=503, detail="Unable to generate a unique short code") from exc
+     base = str(request.base_url).rstrip("/")
+-    return UrlResponse(original_url=item.original_url, short_code=item.short_code, short_url=f"{base}/{item.short_code}")
++    return UrlResponse(
++        original_url=item.original_url,
++        short_code=item.short_code,
++        short_url=f"{base}/{item.short_code}",
++    )
+ 
+ 
+ @router.get("/{short_code}")

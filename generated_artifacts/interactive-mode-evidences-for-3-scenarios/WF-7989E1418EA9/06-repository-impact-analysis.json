@@ -1,0 +1,36 @@
+{
+  "architecture_compatible": true,
+  "blocked_or_sensitive_paths": [],
+  "coding_conventions": [
+    "Python 3.11",
+    "Ruff",
+    "SQLAlchemy 2.x typed ORM"
+  ],
+  "compatibility_risks": [],
+  "detected_frameworks": [
+    "Python"
+  ],
+  "existing_migrations": [],
+  "existing_tests": [],
+  "impacted_files": [
+    "pyproject.toml",
+    "app/__init__.py",
+    "app/main.py",
+    "tests/test_main.py"
+  ],
+  "impacted_modules": [
+    "app"
+  ],
+  "project_structure": [
+    "README.md"
+  ],
+  "recommended_allowed_paths": [
+    "app",
+    "alembic",
+    "tests",
+    "docs",
+    "README.md"
+  ],
+  "repository_summary": "1 files, 0 directories, 1 project files",
+  "status": "ANALYSIS_COMPLETE"
+}
