@@ -98,19 +98,148 @@ python -m uvicorn app.main:app --reload
 Swagger is at http://127.0.0.1:8000/docs. Health routes are GET /health/live and
 GET /health/ready. Do not expose or commit .env. Scripted mode requires no OpenAI credential.
 
-## Interactive scripted demo
+## Automatic scripted demo
 
-The completed Phase 6 evidence should be reviewed rather than rerun solely for regeneration.
-For a fresh, explicitly requested evaluation:
+Automatic mode uses deterministic scripted model responses, automatically answers the supported
+clarification, and submits the workflow approval gates. It does not call OpenAI. The runner starts
+and stops Uvicorn unless -UseExistingServer is supplied.
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Greenfield -WorkspacePrefix demo
-powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Brownfield -WorkspacePrefix demo -SourceWorkspace phase6-interactive-greenfield-20260803182759430
-powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Ambiguous -WorkspacePrefix demo -SourceWorkspace phase6-interactive-greenfield-20260803182759430
+# Run Greenfield, Brownfield, and Ambiguous in sequence.
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Automatic -Scenario All -WorkspacePrefix automatic-demo
+
+# Run an individual scenario.
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Automatic -Scenario Greenfield -WorkspacePrefix automatic-demo
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Automatic -Scenario Brownfield -WorkspacePrefix automatic-demo -SourceWorkspace 'your-greenfield-workspace-name'
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Automatic -Scenario Ambiguous -WorkspacePrefix automatic-demo -SourceWorkspace 'your-greenfield-workspace-name'
+~~~
+
+Brownfield and Ambiguous require a successful Greenfield source. If -SourceWorkspace is omitted
+for either scenario, the runner first creates a fresh Greenfield source.
+
+## Interactive scripted demo
+
+Interactive mode uses the same deterministic workflow but asks the evaluator to answer
+clarifications and make approval decisions.
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Greenfield -WorkspacePrefix interactive-demo
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Brownfield -WorkspacePrefix interactive-demo -SourceWorkspace 'your-greenfield-workspace-name'
+powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Ambiguous -WorkspacePrefix interactive-demo -SourceWorkspace 'your-greenfield-workspace-name'
 ~~~
 
 SourceWorkspace is the directory name relative to WORKSPACE_ROOT, never an absolute path.
 Filesystem inspection commands may use the full generated workspace path.
+
+## Testing from Swagger UI
+
+Start the API and open http://127.0.0.1:8000/docs:
+
+~~~powershell
+python -m uvicorn app.main:app --reload
+~~~
+
+Expand POST /api/v1/workflows, select **Try it out**, and submit one of the following bodies.
+Use a unique workspaceName for every run.
+
+### Greenfield request
+
+~~~json
+{
+  "scenarioType": "GREENFIELD",
+  "requirement": "Build a local URL-shortening API using FastAPI, SQLite, SQLAlchemy 2.x, and Alembic. Support POST /api/v1/urls and GET /{short_code}. Generate secure eight-character alphanumeric short codes using Python secrets. Retry collisions no more than five times. Return the approved exact 404 and 503 responses. Include tests and documentation. Do not add aliases, analytics, expiration, authentication, caching, UI, messaging, workers, or cloud deployment.",
+  "workspaceName": "swagger-greenfield",
+  "scriptedScenario": "URL_SHORTENER_GREENFIELD_HAPPY_PATH"
+}
+~~~
+
+Wait for the Greenfield workflow to reach READY. Copy its workspacePath value into sourceWorkspace
+for the Brownfield and Ambiguous requests. Those scenarios create separate destination workspaces
+from the same Greenfield source.
+
+### Brownfield request
+
+~~~json
+{
+  "scenarioType": "BROWNFIELD",
+  "requirement": "Enhance the existing URL-shortener application with click analytics. Add a click_count column with a default value of 0. Increment click_count on every successful redirect. Add GET /api/v1/urls/{short_code}/stats. Create a new Alembic migration. Preserve existing creation, validation, collision, and redirect behavior. Add regression tests. Do not add aliases, expiration, authentication, caching, messaging, workers, UI, or cloud deployment.",
+  "workspaceName": "swagger-brownfield",
+  "scriptedScenario": "URL_SHORTENER_BROWNFIELD_ANALYTICS",
+  "sourceWorkspace": "replace-with-greenfield-workspacePath"
+}
+~~~
+
+### Ambiguous request
+
+~~~json
+{
+  "scenarioType": "AMBIGUOUS",
+  "requirement": "Add support for optional custom aliases. Aliases should be user-friendly, unique, and handled safely.",
+  "workspaceName": "swagger-ambiguous",
+  "scriptedScenario": "URL_SHORTENER_AMBIGUOUS_ALIASES",
+  "sourceWorkspace": "replace-with-greenfield-workspacePath"
+}
+~~~
+
+Use GET /api/v1/workflows/{workflow_id} to retrieve the latest status and IDs. When
+pendingApproval is present, open
+POST /api/v1/workflows/{workflow_id}/approvals/{approval_id} and copy gateType and stateVersion
+from that latest response:
+
+~~~json
+{
+  "type": "APPROVAL_DECISION",
+  "gateType": "REQUIREMENT",
+  "stateVersion": 1,
+  "action": "APPROVE",
+  "comments": "Approved through Swagger UI",
+  "conditions": [],
+  "decidedBy": "local-reviewer"
+}
+~~~
+
+Repeat this step for each pending approval, always using the current gate type, approval ID, and
+state version. For the Ambiguous scenario, open
+POST /api/v1/workflows/{workflow_id}/clarifications when pendingInteraction is present. Copy the
+workflow ID, clarification ID, state version, and exact question IDs from the latest response:
+
+~~~json
+{
+  "type": "CLARIFICATION_RESPONSE",
+  "workflowId": "WF-...",
+  "clarificationId": "CLR-...",
+  "stateVersion": 2,
+  "answers": [
+    {
+      "questionId": "Q-ALIAS-001",
+      "answer": "The custom alias is optional. When omitted, retain generated short-code behavior."
+    },
+    {
+      "questionId": "Q-ALIAS-002",
+      "answer": "Allow lowercase letters, digits, hyphen, and underscore only."
+    },
+    {
+      "questionId": "Q-ALIAS-003",
+      "answer": "Aliases must contain between 4 and 30 characters."
+    },
+    {
+      "questionId": "Q-ALIAS-004",
+      "answer": "Normalize aliases to lowercase before validation and persistence. Alias uniqueness is case-insensitive. Generated short codes and aliases share the same short_code namespace."
+    },
+    {
+      "questionId": "Q-ALIAS-005",
+      "answer": "Return HTTP 409 with detail Custom alias already exists."
+    },
+    {
+      "questionId": "Q-ALIAS-006",
+      "answer": "Reserve api, docs, openapi.json, and health."
+    }
+  ]
+}
+~~~
+
+Include one answer for every returned question. After each submission, use the newest response
+values; stale state versions are rejected.
 
 ## Verification
 
@@ -120,7 +249,7 @@ python -m ruff check app tests scripts
 git diff --check
 ~~~
 
-The Phase 6 result is recorded in
+The final verification result is recorded in
 [testing and validation](deliverables/testing-and-validation.md).
 
 ## Reliability reporting
@@ -134,3 +263,16 @@ python scripts/generate_reliability_report.py --scenario-type GREENFIELD --outpu
 
 Review the architecture, scenario diagrams, key results, and detailed document references in the
 [Final Evidence Summary](deliverables/Final%20Evidence%20Summary.md).
+
+Artifacts produced by the agents for the Greenfield, Brownfield, and Ambiguous in interactive mode
+are available in
+[generated_artifacts/interactive-mode-evidences-for-3-scenarios](generated_artifacts/interactive-mode-evidences-for-3-scenarios/).
+Each workflow's evidence is organized in its corresponding WF-... directory.
+
+### Screenshot and video evidence
+
+- [Screenshot evidence for all three scenarios](deliverables/three-scenario-screenshot-evidence.pdf)
+- [Ambiguous Scenario 3 video demonstration](https://drive.google.com/drive/folders/1OFURyh3AvgU3c7pBqPkgEXVUiKJN1zAz?usp=sharing)
+
+Due to the evaluation time constraints, only the Ambiguous scenario was recorded as a video. The
+PDF contains screenshot evidence for Greenfield, Brownfield, and Ambiguous.
