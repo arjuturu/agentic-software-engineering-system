@@ -1,0 +1,86 @@
+# Implementation Summary
+
+- Workflow ID: WF-7989E1418EA9
+- Version: 6
+
+## Structured Evidence
+
+~~~json
+{
+  "assumptions": [
+    "Current repository hashes were supplied by the controlled context."
+  ],
+  "change_plan": [
+    {
+      "paths": [
+        "README.md",
+        "docs/validation.md",
+        "docs/change-summary.md",
+        "docs/pr-summary.md",
+        "docs/known-limitations.md"
+      ],
+      "task_id": "TASK-006"
+    }
+  ],
+  "dependency_changes": [],
+  "high_risk_change": false,
+  "high_risk_reason": null,
+  "implementation_summary": "Apply the deterministic task-scoped URL-shortener change.",
+  "migrations_created": [],
+  "replan_reason": null,
+  "risks": [],
+  "status": "READY_TO_APPLY",
+  "structured_edits": [
+    {
+      "content": "# Scripted URL Shortener\n\nRun Alembic, Uvicorn, Pytest, and Ruff locally.\n",
+      "expected_absent": false,
+      "expected_hash": "e7e7cc38dc3792cda335af6ef48e4e87f2f9047505f3566aa07bd1d58d1b6cc8",
+      "old_text": null,
+      "operation": "MODIFY",
+      "relative_path": "README.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# Validation\n\nPytest, Ruff, import, OpenAPI, and Alembic checks are required.\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "docs/validation.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# Change Summary\n\nImplemented URL creation and redirection.\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "docs/change-summary.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# PR Summary\n\nLocal governed change; no remote PR was created.\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "docs/pr-summary.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# Known Limitations\n\nNo aliases, expiration, authentication, analytics, UI, or cloud deployment.\n",
+      "expected_absent": true,
+      "expected_hash": null,
+      "old_text": null,
+      "operation": "CREATE",
+      "relative_path": "docs/known-limitations.md",
+      "replacement_text": null
+    }
+  ],
+  "tests_created_or_modified": []
+}
+~~~
+
+## Evidence References
+
+- WF-7989E1418EA9/changes-v6.diff

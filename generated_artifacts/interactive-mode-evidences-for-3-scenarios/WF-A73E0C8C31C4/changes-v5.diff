@@ -1,0 +1,29 @@
+diff --git a/README.md b/README.md
+index 5f50165..9ed8101 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,5 @@
+ # Scripted URL Shortener
+ 
+-Run Alembic, Uvicorn, Pytest, and Ruff locally.
++The create endpoint accepts an optional custom_alias. Aliases are trimmed, lowercased,
++limited to 4-30 lowercase letters, digits, hyphens, or underscores, and share the
++existing short-code namespace. Run Alembic, Uvicorn, Pytest, and Ruff locally.
+diff --git a/docs/change-summary.md b/docs/change-summary.md
+index 588330c..d01461b 100644
+--- a/docs/change-summary.md
++++ b/docs/change-summary.md
+@@ -1,3 +1,3 @@
+ # Change Summary
+ 
+-Implemented URL creation and redirection.
++Added clarified optional custom aliases without a schema change.
+diff --git a/docs/known-limitations.md b/docs/known-limitations.md
+index 4a1c9a3..5d83f77 100644
+--- a/docs/known-limitations.md
++++ b/docs/known-limitations.md
+@@ -1,3 +1,3 @@
+ # Known Limitations
+ 
+-No aliases, expiration, authentication, analytics, UI, or cloud deployment.
++No analytics, expiration, authentication, ownership, alias management, cache, UI, or cloud deployment.

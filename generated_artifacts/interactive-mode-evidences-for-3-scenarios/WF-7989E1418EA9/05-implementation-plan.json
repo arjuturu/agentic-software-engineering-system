@@ -1,0 +1,264 @@
+{
+  "assumptions": [
+    "Architecture and approval gates remain outside executable tasks."
+  ],
+  "critical_path": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006",
+    "TASK-007"
+  ],
+  "execution_order": [
+    "TASK-001",
+    "TASK-002",
+    "TASK-003",
+    "TASK-004",
+    "TASK-005",
+    "TASK-006",
+    "TASK-007"
+  ],
+  "high_risk_tasks": [
+    "TASK-002"
+  ],
+  "implementation_risks": [
+    "Collision and migration behavior require tests."
+  ],
+  "parallel_groups": [],
+  "plan_summary": "Build and validate the approved URL-shortener application.",
+  "status": "PLAN_COMPLETE",
+  "tasks": [
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "pyproject.toml",
+        "requirements.txt",
+        ".gitignore",
+        "alembic.ini"
+      ],
+      "dependencies": [],
+      "description": "Execute set up dependencies and runnable project configuration using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "pyproject.toml",
+        "requirements.txt",
+        ".gitignore",
+        "alembic.ini"
+      ],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-001",
+      "task_type": "SETUP",
+      "title": "Set up dependencies and runnable project configuration",
+      "validation_commands": [
+        "PYTHON_VERSION"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "app",
+        "alembic"
+      ],
+      "dependencies": [
+        "TASK-001"
+      ],
+      "description": "Execute implement database models and initial migration using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "app/__init__.py",
+        "app/database.py",
+        "app/models.py",
+        "alembic/env.py",
+        "alembic/script.py.mako",
+        "alembic/versions/0001_create_url_mappings.py"
+      ],
+      "parallel_group": null,
+      "risk_level": "MEDIUM",
+      "task_id": "TASK-002",
+      "task_type": "MIGRATION",
+      "title": "Implement database models and initial migration",
+      "validation_commands": [
+        "TARGET_IMPORT_CHECK",
+        "ALEMBIC_HISTORY"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "app"
+      ],
+      "dependencies": [
+        "TASK-002"
+      ],
+      "description": "Execute implement schemas, repository, service, and short code generation using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "app/schemas.py",
+        "app/short_code_generator.py",
+        "app/repository.py",
+        "app/service.py"
+      ],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-003",
+      "task_type": "IMPLEMENTATION",
+      "title": "Implement schemas, repository, service, and short code generation",
+      "validation_commands": [
+        "TARGET_IMPORT_CHECK"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "app"
+      ],
+      "dependencies": [
+        "TASK-003"
+      ],
+      "description": "Execute integrate fastapi application entry point and routes using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "app/api/__init__.py",
+        "app/api/routes.py",
+        "app/main.py"
+      ],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-004",
+      "task_type": "INTEGRATION",
+      "title": "Integrate FastAPI application entry point and routes",
+      "validation_commands": [
+        "TARGET_IMPORT_CHECK",
+        "TARGET_OPENAPI_CHECK"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "tests"
+      ],
+      "dependencies": [
+        "TASK-004"
+      ],
+      "description": "Execute create acceptance testing coverage using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "tests/conftest.py",
+        "tests/test_api.py",
+        "tests/test_service.py"
+      ],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-005",
+      "task_type": "TESTING",
+      "title": "Create acceptance testing coverage",
+      "validation_commands": [
+        "PYTEST"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [
+        "README.md",
+        "docs"
+      ],
+      "dependencies": [
+        "TASK-005"
+      ],
+      "description": "Execute create release documentation using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [
+        "README.md",
+        "docs/validation.md",
+        "docs/change-summary.md",
+        "docs/pr-summary.md",
+        "docs/known-limitations.md"
+      ],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-006",
+      "task_type": "DOCUMENTATION",
+      "title": "Create release documentation",
+      "validation_commands": [
+        "RUFF_CHECK"
+      ]
+    },
+    {
+      "acceptance_criteria_covered": [
+        "Approved URL-shortener behavior is implemented."
+      ],
+      "allowed_paths": [],
+      "dependencies": [
+        "TASK-006"
+      ],
+      "description": "Execute run final validation using governed local tools.",
+      "entry_criteria": [
+        "All declared dependencies are complete."
+      ],
+      "exit_criteria": [
+        "Owned outputs and validation commands pass."
+      ],
+      "expected_files": [],
+      "parallel_group": null,
+      "risk_level": "LOW",
+      "task_id": "TASK-007",
+      "task_type": "VALIDATION",
+      "title": "Run final validation",
+      "validation_commands": [
+        "TARGET_IMPORT_CHECK",
+        "TARGET_OPENAPI_CHECK",
+        "RUFF_CHECK",
+        "PYTEST",
+        "ALEMBIC_UPGRADE_HEAD",
+        "ALEMBIC_DOWNGRADE_BASE",
+        "ALEMBIC_UPGRADE_HEAD",
+        "ALEMBIC_CURRENT"
+      ]
+    }
+  ]
+}

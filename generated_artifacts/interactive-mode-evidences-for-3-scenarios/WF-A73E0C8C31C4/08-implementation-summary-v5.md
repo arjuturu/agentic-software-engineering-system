@@ -1,0 +1,68 @@
+# Implementation Summary
+
+- Workflow ID: WF-A73E0C8C31C4
+- Version: 5
+
+## Structured Evidence
+
+~~~json
+{
+  "assumptions": [
+    "The existing short_code uniqueness constraint is authoritative."
+  ],
+  "change_plan": [
+    {
+      "paths": [
+        "README.md",
+        "docs/change-summary.md",
+        "docs/known-limitations.md"
+      ],
+      "task_id": "TASK-006"
+    }
+  ],
+  "dependency_changes": [],
+  "high_risk_change": false,
+  "high_risk_reason": null,
+  "implementation_summary": "Apply the clarified custom-alias change to current hash-guarded files.",
+  "migrations_created": [],
+  "replan_reason": null,
+  "risks": [
+    "Concurrent duplicate aliases are translated only after uniqueness evidence."
+  ],
+  "status": "READY_TO_APPLY",
+  "structured_edits": [
+    {
+      "content": "# Scripted URL Shortener\n\nThe create endpoint accepts an optional custom_alias. Aliases are trimmed, lowercased,\nlimited to 4-30 lowercase letters, digits, hyphens, or underscores, and share the\nexisting short-code namespace. Run Alembic, Uvicorn, Pytest, and Ruff locally.\n",
+      "expected_absent": false,
+      "expected_hash": "21c51c90aeb29248af59bc42e5be9959c86efd931177f04e1c3af77c428b13f8",
+      "old_text": null,
+      "operation": "MODIFY",
+      "relative_path": "README.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# Change Summary\n\nAdded clarified optional custom aliases without a schema change.\n",
+      "expected_absent": false,
+      "expected_hash": "281a249b2059950041da0fcd79675ca7bf420e5d2e94792f614a1d4c9627771c",
+      "old_text": null,
+      "operation": "MODIFY",
+      "relative_path": "docs/change-summary.md",
+      "replacement_text": null
+    },
+    {
+      "content": "# Known Limitations\n\nNo analytics, expiration, authentication, ownership, alias management, cache, UI, or cloud deployment.\n",
+      "expected_absent": false,
+      "expected_hash": "5134dd2eb629a79c6b183290a801ec71b24e515f379ce344bf751e39ecce515a",
+      "old_text": null,
+      "operation": "MODIFY",
+      "relative_path": "docs/known-limitations.md",
+      "replacement_text": null
+    }
+  ],
+  "tests_created_or_modified": []
+}
+~~~
+
+## Evidence References
+
+- WF-A73E0C8C31C4/changes-v5.diff

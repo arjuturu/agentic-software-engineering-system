@@ -1,0 +1,46 @@
+# Code Change Plan
+
+- Workflow ID: WF-9D68C26C57A2
+- Version: 2
+
+## Structured Evidence
+
+~~~json
+{
+  "assumptions": [
+    "Current repository hashes were supplied by the controlled context."
+  ],
+  "change_plan": [
+    {
+      "paths": [
+        "app/models.py"
+      ],
+      "task_id": "TASK-002"
+    }
+  ],
+  "dependency_changes": [],
+  "high_risk_change": false,
+  "high_risk_reason": null,
+  "implementation_summary": "Apply the deterministic task-scoped URL-shortener change.",
+  "migrations_created": [],
+  "replan_reason": null,
+  "risks": [],
+  "status": "READY_TO_APPLY",
+  "structured_edits": [
+    {
+      "content": "from sqlalchemy import Integer, String\nfrom sqlalchemy.orm import Mapped, mapped_column\n\nfrom app.database import Base\n\n\nclass UrlMapping(Base):\n    __tablename__ = \"url_mappings\"\n\n    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)\n    original_url: Mapped[str] = mapped_column(String(2048), nullable=False)\n    short_code: Mapped[str] = mapped_column(String(8), nullable=False, unique=True, index=True)\n    click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)\n",
+      "expected_absent": false,
+      "expected_hash": "9def0d02dff7e8add14865cd9554109fafe5d475afca539c229d810b6b349be8",
+      "old_text": null,
+      "operation": "MODIFY",
+      "relative_path": "app/models.py",
+      "replacement_text": null
+    }
+  ],
+  "tests_created_or_modified": []
+}
+~~~
+
+## Evidence References
+
+- WF-9D68C26C57A2/07-code-change-plan-v2.json
