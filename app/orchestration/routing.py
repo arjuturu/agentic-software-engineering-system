@@ -25,21 +25,33 @@ def route_plan_validation(state: EngineeringWorkflowState) -> str:
 
 
 def route_requirement_approval(state: EngineeringWorkflowState) -> str:
+    approved_destination = (
+        "workspace_setup" if state.get("scenario_type") == "BROWNFIELD" else "design_agent"
+    )
     return {
-        "APPROVE": "design_agent",
-        "APPROVE_WITH_CONDITIONS": "design_agent",
+        "APPROVE": approved_destination,
+        "APPROVE_WITH_CONDITIONS": approved_destination,
         "REQUEST_CHANGES": "requirement_agent",
         "REJECT": "safe_stop",
     }.get(state.get("last_approval_action", ""), "safe_stop")
 
 
 def route_architecture_approval(state: EngineeringWorkflowState) -> str:
+    approved_destination = (
+        "git_checkpoint" if state.get("scenario_type") == "BROWNFIELD" else "workspace_setup"
+    )
     return {
-        "APPROVE": "workspace_setup",
-        "APPROVE_WITH_CONDITIONS": "workspace_setup",
+        "APPROVE": approved_destination,
+        "APPROVE_WITH_CONDITIONS": approved_destination,
         "REQUEST_CHANGES": "design_agent",
         "REJECT": "safe_stop",
     }.get(state.get("last_approval_action", ""), "safe_stop")
+
+
+def route_repository_policy_validation(state: EngineeringWorkflowState) -> str:
+    if state.get("last_error"):
+        return "safe_stop"
+    return "design_agent" if state.get("scenario_type") == "BROWNFIELD" else "git_checkpoint"
 
 
 def route_quality(state: EngineeringWorkflowState) -> str:

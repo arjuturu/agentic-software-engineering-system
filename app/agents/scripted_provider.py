@@ -3,6 +3,19 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.agents.scripted_url_shortener import (
+    brownfield_plan,
+    greenfield_plan,
+)
+from app.agents.scripted_url_shortener import (
+    coding as url_shortener_coding,
+)
+from app.agents.scripted_url_shortener import (
+    design as url_shortener_design,
+)
+from app.agents.scripted_url_shortener import (
+    requirement as url_shortener_requirement,
+)
 from app.schemas.agents.coding import (
     CodingOutput,
     RepositoryAnalysisOutput,
@@ -52,6 +65,14 @@ class ScriptedProvider:
     ) -> dict[str, Any]:
         del retry_number
         requirement = payload.get("original_requirement", "Create a small Python service.")
+        if scenario in {
+            ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH,
+            ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
+        }:
+            return url_shortener_requirement(
+                requirement,
+                brownfield=scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
+            )
         answers = payload.get("clarification_answers", [])
         if scenario == ScriptedScenario.REQUIREMENT_REJECTED:
             status = "REJECTED_AS_UNSAFE"
@@ -97,6 +118,13 @@ class ScriptedProvider:
     def _design(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
+        if scenario in {
+            ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH,
+            ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
+        }:
+            return url_shortener_design(
+                brownfield=scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS
+            )
         del payload, scenario
         return {
             "architecture_summary": (
@@ -149,6 +177,10 @@ class ScriptedProvider:
     def _planning(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
+        if scenario == ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH:
+            return greenfield_plan()
+        if scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS:
+            return brownfield_plan()
         del retry_number
         package_name = (
             "app"
@@ -260,31 +292,62 @@ class ScriptedProvider:
     def _repository_analysis(
         payload: dict[str, Any], scenario: ScriptedScenario, retry_number: int
     ) -> dict[str, Any]:
-        del scenario, retry_number
+        del retry_number
         scan = payload.get("deterministic_scan", {})
         project_files = scan.get("detected_project_files", [])
+        url_shortener = scenario in {
+            ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH,
+            ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS,
+        }
         package_name = (
             "app"
-            if payload.get("scenario_profile", {}).get("profile_id")
-            == "URL_SHORTENER_GREENFIELD"
+            if url_shortener
+            or payload.get("scenario_profile", {}).get("profile_id")
+            in {"URL_SHORTENER_GREENFIELD", "URL_SHORTENER_BROWNFIELD"}
             else "sample_app"
         )
-        return {
-            "repository_summary": scan.get("repository_summary", "Empty greenfield repository"),
-            "detected_frameworks": ["Python"] if project_files else [],
-            "project_structure": project_files,
-            "impacted_modules": [package_name],
-            "impacted_files": [
+        repository_files = list(scan.get("repository_tree", []))
+        impacted_files = (
+            [
+                path
+                for path in repository_files
+                if path.startswith(("app/", "alembic/", "tests/", "docs/"))
+                or path
+                in {
+                    "README.md",
+                    "pyproject.toml",
+                    "requirements.txt",
+                    "alembic.ini",
+                }
+            ]
+            if url_shortener and repository_files
+            else [
                 "pyproject.toml",
                 f"{package_name}/__init__.py",
                 f"{package_name}/main.py",
                 "tests/test_main.py",
-            ],
+            ]
+        )
+        frameworks = ["Python"] if project_files else []
+        if url_shortener and repository_files:
+            frameworks = ["Python", "FastAPI", "SQLAlchemy", "Alembic", "Pytest"]
+        return {
+            "repository_summary": scan.get("repository_summary", "Empty greenfield repository"),
+            "detected_frameworks": frameworks,
+            "project_structure": repository_files or project_files,
+            "impacted_modules": [package_name],
+            "impacted_files": impacted_files,
             "existing_tests": scan.get("detected_test_files", []),
             "existing_migrations": scan.get("detected_migration_files", []),
-            "coding_conventions": ["Python 3.11", "Ruff"],
+            "coding_conventions": ["Python 3.11", "Ruff", "SQLAlchemy 2.x typed ORM"]
+            if url_shortener
+            else ["Python 3.11", "Ruff"],
             "compatibility_risks": [],
-            "recommended_allowed_paths": ["pyproject.toml", package_name, "tests"],
+            "recommended_allowed_paths": (
+                ["app", "alembic", "tests", "docs", "README.md"]
+                if url_shortener
+                else ["pyproject.toml", package_name, "tests"]
+            ),
             "blocked_or_sensitive_paths": scan.get("restricted_files_found", []),
             "architecture_compatible": not scan.get("restricted_files_found"),
             "status": (
@@ -334,6 +397,10 @@ class ScriptedProvider:
         scenario: ScriptedScenario,
         retry_number: int,
     ) -> dict[str, Any]:
+        if scenario == ScriptedScenario.URL_SHORTENER_GREENFIELD_HAPPY_PATH:
+            return url_shortener_coding(payload, brownfield=False)
+        if scenario == ScriptedScenario.URL_SHORTENER_BROWNFIELD_ANALYTICS:
+            return url_shortener_coding(payload, brownfield=True)
         package_name = (
             "app"
             if payload.get("scenario_profile", {}).get("profile_id")

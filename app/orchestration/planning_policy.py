@@ -23,6 +23,8 @@ _UPSTREAM_ARTIFACT_NAMES = frozenset(
     {
         "architecture-design.md",
         "architecture-design.json",
+        "architecture_plan.md",
+        "architecture_plan.json",
         "implementation-plan.md",
         "implementation-plan.json",
         "requirement-analysis.md",

@@ -45,3 +45,38 @@ URL_SHORTENER_PROFILE = ScenarioProfile(
         "approved quality and migration requirements are validated deterministically",
     ),
 )
+
+
+URL_SHORTENER_BROWNFIELD_PROFILE = ScenarioProfile(
+    profile_id="URL_SHORTENER_BROWNFIELD",
+    scenario_type="BROWNFIELD",
+    summary=(
+        "Enhance an existing governed URL-shortener repository using repository-aware "
+        "analysis and controlled modifications."
+    ),
+    required_capabilities=(),
+    allowed_paths=(
+        "app/",
+        "alembic/",
+        "migrations/",
+        "tests/",
+        "docs/",
+        "README.md",
+        "pyproject.toml",
+        "requirements.txt",
+        "alembic.ini",
+        ".env.example",
+        ".gitignore",
+    ),
+    path_policy_mode="SCENARIO_RESTRICTED",
+    validation_rules=(
+        "existing URL creation and redirect behavior remains valid",
+        "approved Brownfield APIs and schema changes exist",
+        "new Alembic migration upgrades and downgrades successfully",
+        "target application imports in an isolated subprocess",
+        "target does not import control-plane modules",
+        "target repository has no remote and no committed database files",
+        "restricted secret and Git configuration files are absent",
+        "regression tests and approved quality checks pass",
+    ),
+)

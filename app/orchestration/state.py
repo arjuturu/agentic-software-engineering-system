@@ -11,6 +11,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     execution_mode: str
     scripted_scenario: str
     workspace_name: str
+    source_workspace: str
     repository_path: str
     original_requirement: str
     requirement_analysis: dict[str, Any]

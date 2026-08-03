@@ -9,6 +9,7 @@ from app.orchestration.routing import (
     route_quality,
     route_release_approval,
     route_replan,
+    route_repository_policy_validation,
     route_requirement,
     route_requirement_approval,
     route_retry,
@@ -86,7 +87,7 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("repository_analysis", "repository_policy_validation")
     builder.add_conditional_edges(
         "repository_policy_validation",
-        lambda state: "safe_stop" if state.get("last_error") else "git_checkpoint",
+        route_repository_policy_validation,
     )
     builder.add_conditional_edges(
         "git_checkpoint",

@@ -382,6 +382,8 @@ class WorkflowNodes:
         }
 
     def workspace_setup(self, state: dict) -> dict:
+        if state.get("scenario_type") == "BROWNFIELD":
+            return self._brownfield_workspace_setup(state)
         created = self.workspace.create_workspace(state["workspace_name"])
         if created.status != ToolStatus.SUCCESS or not created.created:
             return self._policy_error("WORKSPACE_CONFLICT", "The target workspace is not empty.")
@@ -430,9 +432,117 @@ class WorkflowNodes:
             "current_stage": "WORKSPACE",
         }
 
+    def _brownfield_workspace_setup(self, state: dict) -> dict:
+        source_name = state.get("source_workspace", "")
+        destination_name = state["workspace_name"]
+        try:
+            self.workspace.validate_brownfield_source(source_name, destination_name)
+        except PathPolicyError as exc:
+            return self._policy_error(exc.error_code, "The Brownfield source is invalid.")
+        self.audit.record(
+            state["workflow_id"],
+            "BROWNFIELD_SOURCE_VALIDATED",
+            "WORKSPACE",
+            {"source_workspace": source_name, "destination_workspace": destination_name},
+        )
+        copied = self.workspace.copy_brownfield_workspace(source_name, destination_name)
+        if copied.status != ToolStatus.SUCCESS:
+            code = copied.error.code if copied.error else "WORKSPACE_COPY_FAILED"
+            return self._policy_error(code, "The Brownfield baseline could not be copied.")
+        self.audit.record(
+            state["workflow_id"],
+            "BROWNFIELD_WORKSPACE_COPIED",
+            "WORKSPACE",
+            {"source_workspace": source_name, "destination_workspace": destination_name},
+        )
+        repository = self.workspace.get_workspace(destination_name)
+        initialized = self.git.initialize_repository(repository)
+        if initialized.status != ToolStatus.SUCCESS:
+            return self._policy_error(
+                "REPOSITORY_INITIALIZATION_FAILED", "Git initialization failed."
+            )
+        baseline_files = self.scanner.list_files(repository)
+        staged = self.git.stage_files(repository, baseline_files)
+        if staged.status != ToolStatus.SUCCESS:
+            return self._policy_error(
+                "BASELINE_STAGE_FAILED", "The Brownfield baseline could not be staged."
+            )
+        committed = self.git.commit(repository, "Create governed Brownfield baseline")
+        if committed.status != ToolStatus.SUCCESS or not committed.commit_id:
+            return self._policy_error(
+                "BASELINE_COMMIT_FAILED", "The Brownfield baseline could not be committed."
+            )
+        remotes = self.git.get_remotes(repository)
+        if remotes.status != ToolStatus.SUCCESS or remotes.stdout.strip():
+            return self._policy_error(
+                "GIT_REMOTE_PRESENT", "The Brownfield destination must not have a Git remote."
+            )
+        self.audit.record(
+            state["workflow_id"],
+            "BROWNFIELD_BASELINE_CREATED",
+            "WORKSPACE",
+            {"file_count": len(baseline_files)},
+        )
+        branch = f"agent/{state['workflow_id'].lower()}-{destination_name.lower()}"
+        branched = self.git.create_branch(repository, branch)
+        if branched.status != ToolStatus.SUCCESS:
+            return self._policy_error(
+                "BRANCH_CREATE_FAILED", "The Brownfield branch could not be created."
+            )
+        self.audit.record(
+            state["workflow_id"],
+            "BROWNFIELD_BRANCH_CREATED",
+            "WORKSPACE",
+            {"branch": branch},
+        )
+        return {
+            "repository_path": str(repository),
+            "baseline_commit": committed.commit_id,
+            "working_branch": branch,
+            "current_commit": committed.commit_id,
+            "workflow_status": "INITIALIZING_WORKSPACE",
+            "current_stage": "WORKSPACE",
+        }
+
     def repository_analysis(self, state: dict) -> dict:
         repository = Path(state["repository_path"])
         scan = self.scanner.scan(repository).model_dump(mode="json")
+        if state.get("scenario_type") == "BROWNFIELD":
+            relevant_files: list[dict[str, str]] = []
+            for relative_path in self.scanner.list_files(repository):
+                path = repository / relative_path
+                if path.suffix.lower() not in {
+                    ".py",
+                    ".md",
+                    ".toml",
+                    ".ini",
+                    ".txt",
+                    ".mako",
+                }:
+                    continue
+                try:
+                    content = self.scanner.read_safe_text_file(repository, relative_path)
+                except PathPolicyError:
+                    continue
+                relevant_files.append(
+                    {
+                        "relative_path": relative_path,
+                        "content": content,
+                        "sha256": file_sha256(path),
+                    }
+                )
+            scan.update(
+                {
+                    "source_workspace": state.get("source_workspace", ""),
+                    "destination_workspace": state.get("workspace_name", ""),
+                    "repository_tree": self.scanner.list_files(repository),
+                    "relevant_files": relevant_files,
+                    "git_baseline": {
+                        "commit": state.get("baseline_commit", ""),
+                        "branch": state.get("working_branch", ""),
+                    },
+                }
+            )
         scan_ref = self.artifacts.write_json(
             state["workflow_id"], "REPOSITORY_SCAN", "repository-scan.json", scan
         )
@@ -737,6 +847,7 @@ class WorkflowNodes:
                     **state.get("coding_attempt", {}),
                     "applied": True,
                     "applied_change_count": 0,
+                    "changed_files": [],
                 },
                 "last_error": {},
             }
@@ -810,11 +921,12 @@ class WorkflowNodes:
         )
         return {
             "implementation_result": state["code_change_plan"],
-            "coding_attempt": {
-                **state.get("coding_attempt", {}),
-                "applied": True,
-                "applied_change_count": len(changed),
-            },
+                "coding_attempt": {
+                    **state.get("coding_attempt", {}),
+                    "applied": True,
+                    "applied_change_count": len(changed),
+                    "changed_files": changed,
+                },
             "changed_files": sorted(set([*state.get("changed_files", []), *changed])),
             "current_commit": committed.commit_id or "",
             "git_diff_artifact": diff_ref,
@@ -835,6 +947,14 @@ class WorkflowNodes:
         task_id = task.get("task_id")
         attempt = state.get("coding_attempt", {})
         commands = [str(item) for item in task.get("validation_commands", [])]
+        resolved_import_modules = self.tests.task_import_modules(
+            task, list(attempt.get("changed_files", []))
+        )
+        import_modules = (
+            None
+            if str(task.get("task_type", "")) == "VALIDATION"
+            else resolved_import_modules
+        )
         self.audit.record(
             state["workflow_id"],
             "TASK_VALIDATION_STARTED",
@@ -845,9 +965,14 @@ class WorkflowNodes:
                 "attempt_number": attempt.get("attempt_number"),
                 "originating_task_id": attempt.get("originating_task_id"),
                 "retry_task_id": attempt.get("retry_task_id"),
+                "import_modules": ["app.main"] if import_modules is None else import_modules,
             },
         )
-        command_results = self.tests.run_task_commands(Path(state["repository_path"]), commands)
+        command_results = self.tests.run_task_commands(
+            Path(state["repository_path"]),
+            commands,
+            import_modules=import_modules,
+        )
         passed = all(result.status == ToolStatus.SUCCESS for result in command_results)
         failed = next(
             (result for result in command_results if result.status != ToolStatus.SUCCESS), None
@@ -951,7 +1076,10 @@ class WorkflowNodes:
             "status": "NOT_APPLICABLE",
             "reason": "No specialized target contract applies.",
         }
-        if contract_payload["profile_id"] == "URL_SHORTENER_GREENFIELD":
+        if contract_payload["profile_id"] in {
+            "URL_SHORTENER_GREENFIELD",
+            "URL_SHORTENER_BROWNFIELD",
+        }:
             if state.get("execution_mode") == "OPENAI":
                 contract_payload = self.target_validator.validate(
                     Path(state["repository_path"]),
@@ -968,7 +1096,7 @@ class WorkflowNodes:
                 )
             else:
                 contract_payload = {
-                    "profile_id": "URL_SHORTENER_GREENFIELD",
+                    "profile_id": contract_payload["profile_id"],
                     "status": "NOT_EXECUTED",
                     "reason": "SCRIPTED_PLATFORM_TEST_DOUBLE",
                 }

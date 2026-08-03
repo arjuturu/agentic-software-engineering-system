@@ -38,7 +38,7 @@ from app.tools.alembic_runner import AlembicRunner
 from app.tools.command_runner import CommandRunner
 from app.tools.controlled_editor import ControlledEditor
 from app.tools.git_tool import GitTool
-from app.tools.path_policy import PathPolicy
+from app.tools.path_policy import PathPolicy, PathPolicyError
 from app.tools.repository_scanner import RepositoryScanner
 from app.tools.test_runner import TestRunner
 from app.tools.workspace_manager import WorkspaceManager
@@ -53,6 +53,7 @@ class WorkflowRuntime:
     artifacts: ArtifactService
     audit: AuditService
     approvals: ApprovalService
+    workspace: WorkspaceManager
 
     def close(self) -> None:
         self.checkpoint.close()
@@ -82,6 +83,7 @@ def create_workflow_runtime(settings: Settings, sessions: sessionmaker[Session])
         AlembicRunner(command_runner),
         git_tool,
     )
+    workspace_manager = WorkspaceManager(policy)
     nodes = WorkflowNodes(
         sessions=sessions,
         requirement=RequirementAgent(runner),
@@ -94,7 +96,7 @@ def create_workflow_runtime(settings: Settings, sessions: sessionmaker[Session])
         artifacts=artifact_service,
         audit=audit_service,
         retry_policy=RetryPolicy(settings),
-        workspace=WorkspaceManager(policy),
+        workspace=workspace_manager,
         scanner=RepositoryScanner(policy, settings),
         editor=ControlledEditor(policy, settings),
         git=git_tool,
@@ -110,6 +112,7 @@ def create_workflow_runtime(settings: Settings, sessions: sessionmaker[Session])
         artifacts=artifact_service,
         audit=audit_service,
         approvals=approval_service,
+        workspace=workspace_manager,
     )
 
 
@@ -127,6 +130,25 @@ class WorkflowService:
                 "INVALID_SCRIPTED_SCENARIO",
                 400,
             )
+        if request.scenario_type.value == "BROWNFIELD":
+            try:
+                self.runtime.workspace.validate_brownfield_source(
+                    request.source_workspace or "", request.workspace_name
+                )
+            except PathPolicyError as exc:
+                status_code = 404 if exc.error_code == "SOURCE_WORKSPACE_NOT_FOUND" else 409
+                if exc.error_code in {
+                    "INVALID_WORKSPACE_NAME",
+                    "ABSOLUTE_PATH",
+                    "PATH_TRAVERSAL",
+                    "SOURCE_SYMLINK_BLOCKED",
+                }:
+                    status_code = 400
+                raise ApplicationError(
+                    "The Brownfield workspace request is invalid.",
+                    exc.error_code,
+                    status_code,
+                ) from exc
         workflow_id = new_workflow_id()
         thread_id = new_thread_id()
         active_correlation_id = correlation_id or new_correlation_id()
@@ -165,6 +187,7 @@ class WorkflowService:
             "execution_mode": self.runtime.settings.LLM_MODE,
             "scripted_scenario": request.scripted_scenario.value,
             "workspace_name": request.workspace_name,
+            "source_workspace": request.source_workspace or "",
             "repository_path": "",
             "original_requirement": request.requirement,
             "clarification_answers": [],

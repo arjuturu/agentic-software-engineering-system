@@ -16,6 +16,7 @@ _SECRET_KEY_MARKERS = ("SECRET", "TOKEN", "PASSWORD", "CREDENTIAL", "API_KEY", "
 _SAFE_BASE_ENVIRONMENT = ("PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE")
 _SAFE_EXPLICIT_ENVIRONMENT = {"APP_ENV", "DATABASE_URL", "PYTHONPATH"}
 _ENVIRONMENT_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_PYTHON_MODULE_NAME = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
 
 
 class CommandRunner:
@@ -69,19 +70,45 @@ class CommandRunner:
         self,
         command_id: CommandId,
         working_directory: Path,
-        extra_args: list[str],
+        extra_args: list[str] | None,
     ) -> list[str]:
+        if command_id == CommandId.TARGET_IMPORT_CHECK:
+            if extra_args is None:
+                return self._base_arguments(command_id)
+            modules = list(dict.fromkeys(extra_args))
+            if not modules:
+                return [
+                    sys.executable,
+                    "-c",
+                    "print('TARGET_IMPORT_CHECK_NOT_APPLICABLE')",
+                ]
+            if not all(_PYTHON_MODULE_NAME.fullmatch(module) for module in modules):
+                raise PathPolicyError(
+                    "A target module name is unsafe.", "UNSAFE_ARGUMENT"
+                )
+            module_tuple = repr(tuple(modules))
+            return [
+                sys.executable,
+                "-c",
+                (
+                    "import importlib; "
+                    f"modules = {module_tuple}; "
+                    "[importlib.import_module(module) for module in modules]; "
+                    "print(','.join(modules))"
+                ),
+            ]
         if command_id not in {CommandId.PYTEST, CommandId.RUFF_CHECK}:
             if extra_args:
                 raise PathPolicyError(
                     "This command does not accept extra arguments.", "EXTRA_ARGUMENT_BLOCKED"
                 )
             return self._base_arguments(command_id)
-        if len(extra_args) > 1:
+        validated_extra_args = extra_args or []
+        if len(validated_extra_args) > 1:
             raise PathPolicyError(
                 "Only one approved relative path is accepted.", "EXTRA_ARGUMENT_BLOCKED"
             )
-        target = extra_args[0] if extra_args else "."
+        target = validated_extra_args[0] if validated_extra_args else "."
         if target.startswith("-") or any(character in target for character in (";", "|", ">", "<")):
             raise PathPolicyError("The command argument is unsafe.", "UNSAFE_ARGUMENT")
         self.path_policy.validate_relative_path(working_directory, target)
@@ -146,7 +173,7 @@ class CommandRunner:
         try:
             approved_id = CommandId(command_id)
             directory = self.path_policy.validate_working_directory(working_directory)
-            arguments = self._validated_arguments(approved_id, directory, extra_args or [])
+            arguments = self._validated_arguments(approved_id, directory, extra_args)
             environment = self._environment(safe_environment)
             timeout = timeout_seconds if timeout_seconds is not None else self.default_timeout
             if timeout <= 0 or timeout > self.default_timeout:

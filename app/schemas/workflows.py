@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.agents.common import ScenarioType, ScriptedScenario, WorkflowStatus
 
@@ -18,6 +18,13 @@ class WorkflowCreateRequest(BaseModel):
     scripted_scenario: ScriptedScenario = Field(
         default=ScriptedScenario.HAPPY_PATH, alias="scriptedScenario"
     )
+    source_workspace: str | None = Field(default=None, alias="sourceWorkspace")
+
+    @model_validator(mode="after")
+    def require_brownfield_source(self) -> "WorkflowCreateRequest":
+        if self.scenario_type == ScenarioType.BROWNFIELD and not self.source_workspace:
+            raise ValueError("sourceWorkspace is required for BROWNFIELD workflows")
+        return self
 
 
 class ClarificationAnswer(BaseModel):

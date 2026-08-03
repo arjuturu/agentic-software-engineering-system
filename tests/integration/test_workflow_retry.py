@@ -76,9 +76,9 @@ def _install_high_risk_coding_retry(
         return output
 
     def deterministic_task_validation(
-        self: TestRunner, repository_path, command_ids
+        self: TestRunner, repository_path, command_ids, *, import_modules=None
     ) -> list[CommandResult]:
-        del self, repository_path
+        del self, repository_path, import_modules
         nonlocal validation_calls
         validation_calls += 1
         failed = validation_calls <= validation_failures

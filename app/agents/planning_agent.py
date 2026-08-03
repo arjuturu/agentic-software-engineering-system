@@ -32,6 +32,8 @@ class PlanningAgent:
                 "retry_number": retry_number,
                 "approved_requirement": state["approved_requirement"],
                 "architecture_design": state["architecture_design"],
+                "repository_analysis": state.get("repository_analysis", {}),
+                "repository_scan": state.get("repository_scan", {}),
                 **governance,
                 "generated_task_ids": [
                     task.get("task_id") for task in previous_plan.get("tasks", [])

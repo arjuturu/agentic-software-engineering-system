@@ -16,7 +16,6 @@ def test_resolves_url_shortener_only_with_strong_greenfield_evidence() -> None:
     ("scenario", "requirement"),
     [
         ("GREENFIELD", "Validate this URL."),
-        ("BROWNFIELD", "Add URL shortening redirects and analytics."),
         ("GREENFIELD", "Build an analytics dashboard."),
     ],
 )
@@ -29,3 +28,12 @@ def test_resolver_is_deterministic() -> None:
     assert resolve_scenario_profile("GREENFIELD", requirement) == resolve_scenario_profile(
         "GREENFIELD", requirement
     )
+
+
+def test_brownfield_uses_repository_aware_url_shortener_profile() -> None:
+    profile = resolve_scenario_profile(
+        "BROWNFIELD", "Enhance an existing URL shortener with click analytics."
+    )
+
+    assert profile["profile_id"] == "URL_SHORTENER_BROWNFIELD"
+    assert profile["required_capabilities"] == []
