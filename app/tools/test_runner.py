@@ -45,3 +45,52 @@ class TestRunner:
             pytest=pytest_result,
             failed_step=None if status == ToolStatus.SUCCESS else "PYTEST",
         )
+
+    def run_task_commands(
+        self,
+        repository_path: Path,
+        command_ids: list[str],
+        *,
+        import_modules: list[str] | None = None,
+    ) -> list[CommandResult]:
+        """Run a task's approved validation commands in declared order."""
+        results: list[CommandResult] = []
+        for command_id in command_ids:
+            approved_id = CommandId(command_id)
+            arguments = (
+                import_modules if approved_id == CommandId.TARGET_IMPORT_CHECK else None
+            )
+            result = self.command_runner.run(
+                approved_id, repository_path, extra_args=arguments
+            )
+            results.append(result)
+            if result.status != ToolStatus.SUCCESS:
+                break
+        return results
+
+    @staticmethod
+    def task_import_modules(task: dict, changed_files: list[str]) -> list[str]:
+        """Resolve exact application modules owned by the current coding task."""
+        candidates = [
+            *map(str, changed_files),
+            *map(str, task.get("expected_files", [])),
+            *map(str, task.get("allowed_paths", [])),
+        ]
+        modules: list[str] = []
+        for raw_path in candidates:
+            path = raw_path.replace("\\", "/").strip("/")
+            parts = path.split("/")
+            if (
+                len(parts) < 2
+                or parts[0] != "app"
+                or not path.endswith(".py")
+                or "__pycache__" in parts
+            ):
+                continue
+            module_parts = parts[:-1]
+            if parts[-1] != "__init__.py":
+                module_parts.append(parts[-1].removesuffix(".py"))
+            module = ".".join(module_parts)
+            if module and module not in modules:
+                modules.append(module)
+        return modules

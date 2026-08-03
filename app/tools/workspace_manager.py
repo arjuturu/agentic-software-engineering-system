@@ -1,5 +1,7 @@
 import logging
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 from app.tools.models import ToolError, ToolStatus, WorkspaceResult
@@ -68,6 +70,100 @@ class WorkspaceManager:
                 status=ToolStatus.BLOCKED,
                 error=ToolError(code=code, message="The workspace could not be created."),
             )
+
+    def validate_brownfield_source(self, source_name: str, destination_name: str) -> Path:
+        """Validate an existing local repository and a distinct new destination."""
+        self._validate_name(source_name)
+        self._validate_name(destination_name)
+        if source_name.casefold() == destination_name.casefold():
+            raise PathPolicyError(
+                "Source and destination workspaces must differ.", "SOURCE_EQUALS_DESTINATION"
+            )
+        source = self.path_policy.resolve_workspace_path(source_name)
+        if source.is_symlink() or not source.is_dir():
+            raise PathPolicyError(
+                "The Brownfield source workspace was not found.", "SOURCE_WORKSPACE_NOT_FOUND"
+            )
+        source = self.path_policy.validate_working_directory(source)
+        if not (source / ".git").is_dir():
+            raise PathPolicyError(
+                "The Brownfield source is not a local repository.", "SOURCE_NOT_REPOSITORY"
+            )
+        if any(path.is_symlink() for path in source.rglob("*")):
+            raise PathPolicyError(
+                "Symbolic links are not accepted in Brownfield sources.", "SOURCE_SYMLINK_BLOCKED"
+            )
+        destination = self.path_policy.resolve_workspace_path(destination_name)
+        if destination.exists():
+            raise PathPolicyError(
+                "The destination workspace already exists.", "DESTINATION_EXISTS"
+            )
+        return source
+
+    @staticmethod
+    def _copy_ignored(_directory: str, names: list[str]) -> set[str]:
+        ignored: set[str] = set()
+        blocked_directories = {
+            ".git",
+            ".venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".ruff_cache",
+            "logs",
+        }
+        for name in names:
+            lowered = name.casefold()
+            if lowered in blocked_directories:
+                ignored.add(name)
+                continue
+            if lowered == ".env" or (
+                lowered.startswith(".env.") and lowered != ".env.example"
+            ):
+                ignored.add(name)
+                continue
+            if (
+                lowered.endswith((".pyc", ".db", ".sqlite", ".sqlite3", ".tmp", ".temp"))
+                or lowered.startswith("~")
+            ):
+                ignored.add(name)
+        return ignored
+
+    def copy_brownfield_workspace(
+        self, source_name: str, destination_name: str
+    ) -> WorkspaceResult:
+        """Copy a validated repository baseline without Git or runtime artifacts."""
+        temporary: Path | None = None
+        try:
+            source = self.validate_brownfield_source(source_name, destination_name)
+            root = self.path_policy.workspace_root
+            temporary = Path(tempfile.mkdtemp(prefix=".brownfield-copy-", dir=root))
+            shutil.copytree(
+                source,
+                temporary,
+                dirs_exist_ok=True,
+                ignore=self._copy_ignored,
+                copy_function=shutil.copy2,
+            )
+            destination = self.path_policy.resolve_workspace_path(destination_name)
+            temporary.replace(destination)
+            temporary = None
+            return WorkspaceResult(
+                name=destination_name,
+                path=destination_name,
+                status=ToolStatus.SUCCESS,
+                created=True,
+            )
+        except (PathPolicyError, OSError) as exc:
+            code = exc.error_code if isinstance(exc, PathPolicyError) else "WORKSPACE_COPY_FAILED"
+            return WorkspaceResult(
+                name=destination_name,
+                path=destination_name,
+                status=ToolStatus.BLOCKED,
+                error=ToolError(code=code, message="The Brownfield workspace could not be copied."),
+            )
+        finally:
+            if temporary is not None and temporary.exists():
+                shutil.rmtree(temporary)
 
     def get_workspace(self, name: str) -> Path:
         """Return an existing validated workspace path."""

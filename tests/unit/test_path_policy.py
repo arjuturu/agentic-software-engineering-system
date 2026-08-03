@@ -59,6 +59,17 @@ def test_normal_safe_file_is_allowed(policy: PathPolicy) -> None:
     assert policy.validate_read_path(path) == path.resolve()
 
 
+def test_only_exact_env_example_is_allowed(policy: PathPolicy) -> None:
+    assert policy.resolve_workspace_path(".env.example") == (
+        policy.workspace_root / ".env.example"
+    )
+    for blocked in (".env", ".env.local", ".env.production", ".ENV.EXAMPLE"):
+        with pytest.raises(PathPolicyError):
+            policy.resolve_workspace_path(blocked)
+    with pytest.raises(PathPolicyError):
+        policy.resolve_workspace_path("nested/../.env.example")
+
+
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symbolic links are unsupported")
 def test_symlink_escape_is_blocked(policy: PathPolicy, tmp_path: Path) -> None:
     outside = tmp_path / "outside"
@@ -71,3 +82,52 @@ def test_symlink_escape_is_blocked(policy: PathPolicy, tmp_path: Path) -> None:
 
     with pytest.raises(PathPolicyError):
         policy.resolve_workspace_path("escape/secret.txt")
+
+def test_root_level_task_path_is_allowed(policy: PathPolicy) -> None:
+    effective = policy.resolve_effective_allowed_paths(["architecture_plan.txt"], [])
+
+    assert effective == ["architecture_plan.txt"]
+    assert policy.validate_allowed_path("architecture_plan.txt", effective) == (
+        "architecture_plan.txt"
+    )
+
+
+def test_empty_scenario_paths_add_no_restriction(policy: PathPolicy) -> None:
+    effective = policy.resolve_effective_allowed_paths(["src", "pyproject.toml"], [])
+
+    assert effective == ["pyproject.toml", "src"]
+    assert policy.validate_allowed_path("src/main.py", effective) == "src/main.py"
+
+
+def test_explicit_deny_all_is_distinct_from_empty_restrictions(policy: PathPolicy) -> None:
+    assert policy.resolve_effective_allowed_paths(
+        ["src"], [], policy_mode="DENY_ALL"
+    ) == []
+
+
+def test_nonempty_scenario_paths_restrict_task_paths(policy: PathPolicy) -> None:
+    effective = policy.resolve_effective_allowed_paths(
+        ["src", "tests"], ["src/approved"]
+    )
+
+    assert effective == ["src/approved"]
+    assert policy.validate_allowed_path("src/approved/main.py", effective) == (
+        "src/approved/main.py"
+    )
+    with pytest.raises(PathPolicyError) as blocked:
+        policy.validate_allowed_path("src/other.py", effective)
+    assert blocked.value.error_code == "REPOSITORY_POLICY_VIOLATION"
+
+
+def test_legacy_workspace_root_policy_notation_is_normalized(policy: PathPolicy) -> None:
+    assert policy.resolve_effective_allowed_paths(["/architecture_plan.txt"], []) == [
+        "architecture_plan.txt"
+    ]
+
+
+@pytest.mark.parametrize("unsafe", ["../escape.py", "/absolute.py", "C:\\absolute.py"])
+def test_allowed_path_validation_keeps_global_safety_blocks(
+    policy: PathPolicy, unsafe: str
+) -> None:
+    with pytest.raises(PathPolicyError):
+        policy.validate_allowed_path(unsafe, ["absolute.py"])

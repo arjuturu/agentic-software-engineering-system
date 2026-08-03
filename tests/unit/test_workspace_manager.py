@@ -68,3 +68,64 @@ def test_list_workspaces(manager: WorkspaceManager) -> None:
     manager.path_policy.workspace_root.joinpath(".hidden").mkdir()
 
     assert manager.list_workspaces() == ["alpha", "bravo"]
+
+
+def test_brownfield_copy_preserves_source_and_excludes_runtime_files(
+    manager: WorkspaceManager,
+) -> None:
+    source = manager.path_policy.workspace_root / "source"
+    (source / ".git").mkdir(parents=True)
+    (source / "app").mkdir()
+    (source / "app" / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (source / ".venv").mkdir()
+    (source / ".venv" / "ignored.py").write_text("ignored", encoding="utf-8")
+    (source / "runtime.db").write_text("ignored", encoding="utf-8")
+    before = (source / "app" / "main.py").read_bytes()
+
+    result = manager.copy_brownfield_workspace("source", "destination")
+    destination = manager.get_workspace("destination")
+
+    assert result.status == ToolStatus.SUCCESS
+    assert (destination / "app" / "main.py").read_bytes() == before
+    assert not (destination / ".git").exists()
+    assert not (destination / ".venv").exists()
+    assert not (destination / "runtime.db").exists()
+    assert (source / "app" / "main.py").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("source", "destination", "code"),
+    [
+        ("missing", "destination", "SOURCE_WORKSPACE_NOT_FOUND"),
+        ("same", "same", "SOURCE_EQUALS_DESTINATION"),
+        ("../escape", "destination", "INVALID_WORKSPACE_NAME"),
+        ("C:/absolute", "destination", "INVALID_WORKSPACE_NAME"),
+    ],
+)
+def test_invalid_brownfield_sources_are_rejected(
+    manager: WorkspaceManager, source: str, destination: str, code: str
+) -> None:
+    if source == "same":
+        (manager.path_policy.workspace_root / source / ".git").mkdir(parents=True)
+
+    with pytest.raises(PathPolicyError) as raised:
+        manager.validate_brownfield_source(source, destination)
+
+    assert raised.value.error_code == code
+
+
+def test_brownfield_source_symlink_is_rejected_when_supported(
+    manager: WorkspaceManager, tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside"
+    (outside / ".git").mkdir(parents=True)
+    link = manager.path_policy.workspace_root / "linked-source"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("Directory symlinks are unavailable on this platform")
+
+    with pytest.raises(PathPolicyError) as raised:
+        manager.validate_brownfield_source("linked-source", "destination")
+
+    assert raised.value.error_code == "SOURCE_WORKSPACE_NOT_FOUND"

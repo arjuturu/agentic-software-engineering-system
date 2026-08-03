@@ -24,8 +24,15 @@ def test_default_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.MAX_COMMAND_OUTPUT_BYTES == 1048576
     assert settings.ENABLE_GIT_WRITES is True
     assert settings.ENABLE_EXTERNAL_NETWORK is False
+    assert settings.OPENAI_MODEL == "gpt-5.6-terra"
+    assert settings.OPENAI_REASONING_EFFORT == "medium"
 
 
 def test_invalid_short_code_length() -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, SHORT_CODE_LENGTH=0)
+
+
+def test_invalid_openai_reasoning_effort() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, OPENAI_REASONING_EFFORT="extreme")

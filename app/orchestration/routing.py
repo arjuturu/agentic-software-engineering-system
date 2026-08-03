@@ -10,22 +10,56 @@ def route_requirement(state: EngineeringWorkflowState) -> str:
     }.get(status, "safe_stop")
 
 
+def route_design_agent(state: EngineeringWorkflowState) -> str:
+    error = state.get("last_error", {})
+    if error:
+        return "design_agent" if error.get("retry_allowed") else "safe_stop"
+    return "design_validation"
+
+
+def route_plan_validation(state: EngineeringWorkflowState) -> str:
+    error = state.get("last_error", {})
+    if not error:
+        return "prepare_architecture_approval"
+    return "planning_agent" if error.get("retry_allowed") else "safe_stop"
+
+
 def route_requirement_approval(state: EngineeringWorkflowState) -> str:
+    approved_destination = (
+        "workspace_setup"
+        if state.get("scenario_type") in {"BROWNFIELD", "AMBIGUOUS"}
+        else "design_agent"
+    )
     return {
-        "APPROVE": "design_agent",
-        "APPROVE_WITH_CONDITIONS": "design_agent",
+        "APPROVE": approved_destination,
+        "APPROVE_WITH_CONDITIONS": approved_destination,
         "REQUEST_CHANGES": "requirement_agent",
         "REJECT": "safe_stop",
     }.get(state.get("last_approval_action", ""), "safe_stop")
 
 
 def route_architecture_approval(state: EngineeringWorkflowState) -> str:
+    approved_destination = (
+        "git_checkpoint"
+        if state.get("scenario_type") in {"BROWNFIELD", "AMBIGUOUS"}
+        else "workspace_setup"
+    )
     return {
-        "APPROVE": "workspace_setup",
-        "APPROVE_WITH_CONDITIONS": "workspace_setup",
+        "APPROVE": approved_destination,
+        "APPROVE_WITH_CONDITIONS": approved_destination,
         "REQUEST_CHANGES": "design_agent",
         "REJECT": "safe_stop",
     }.get(state.get("last_approval_action", ""), "safe_stop")
+
+
+def route_repository_policy_validation(state: EngineeringWorkflowState) -> str:
+    if state.get("last_error"):
+        return "safe_stop"
+    return (
+        "design_agent"
+        if state.get("scenario_type") in {"BROWNFIELD", "AMBIGUOUS"}
+        else "git_checkpoint"
+    )
 
 
 def route_quality(state: EngineeringWorkflowState) -> str:
@@ -34,6 +68,8 @@ def route_quality(state: EngineeringWorkflowState) -> str:
     category = validation.get("failure_category")
     if status == "VALIDATION_PASSED":
         return "documentation_release_agent"
+    if status == "INCOMPLETE_IMPLEMENTATION" or category == "INCOMPLETE_IMPLEMENTATION":
+        return "coding_agent"
     if category == "IMPLEMENTATION_DEFECT":
         return "retry_router"
     if category == "REQUIREMENT_AMBIGUITY":
@@ -47,6 +83,25 @@ def route_quality(state: EngineeringWorkflowState) -> str:
 
 def route_retry(state: EngineeringWorkflowState) -> str:
     return "coding_agent" if state.get("last_error", {}).get("retry_allowed") else "rollback"
+
+
+def route_apply_changes(state: EngineeringWorkflowState) -> str:
+    error = state.get("last_error", {})
+    if not error:
+        return "task_validation"
+    if error.get("category") == "REPOSITORY_POLICY_VIOLATION":
+        return "safe_stop"
+    return "retry_router"
+
+
+def route_task_validation(state: EngineeringWorkflowState) -> str:
+    if state.get("task_validation_result", {}).get("status") == "VALIDATION_PASSED":
+        return "complete_task"
+    return "failure_classifier"
+
+
+def route_task_completion(state: EngineeringWorkflowState) -> str:
+    return "parallel_start" if state.get("all_required_tasks_completed") else "coding_agent"
 
 
 def route_replan(state: EngineeringWorkflowState) -> str:

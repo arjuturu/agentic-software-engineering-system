@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.agents.common import ScenarioType, ScriptedScenario, WorkflowStatus
 
@@ -18,12 +18,24 @@ class WorkflowCreateRequest(BaseModel):
     scripted_scenario: ScriptedScenario = Field(
         default=ScriptedScenario.HAPPY_PATH, alias="scriptedScenario"
     )
+    source_workspace: str | None = Field(default=None, alias="sourceWorkspace")
+
+    @model_validator(mode="after")
+    def require_brownfield_source(self) -> "WorkflowCreateRequest":
+        if self.scenario_type in {
+            ScenarioType.BROWNFIELD,
+            ScenarioType.AMBIGUOUS,
+        } and not self.source_workspace:
+            raise ValueError("sourceWorkspace is required for source-based workflows")
+        return self
 
 
 class ClarificationAnswer(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    question_id: str = Field(alias="questionId", pattern=r"^Q-[0-9]{3}$")
+    question_id: str = Field(
+        alias="questionId", pattern=r"^Q-(?:[0-9]{3}|[A-Z]+-[0-9]{3})$"
+    )
     answer: str = Field(min_length=1, max_length=2000)
 
 
@@ -31,6 +43,8 @@ class ClarificationSubmitRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     type: str = Field(default="CLARIFICATION_RESPONSE", pattern="^CLARIFICATION_RESPONSE$")
+    workflow_id: str = Field(alias="workflowId", min_length=1, max_length=64)
+    clarification_id: str = Field(alias="clarificationId", min_length=1, max_length=64)
     state_version: int = Field(alias="stateVersion", ge=1)
     answers: list[ClarificationAnswer] = Field(min_length=1)
 
@@ -44,6 +58,7 @@ class WorkflowResponse(BaseModel):
     current_stage: str = Field(alias="currentStage")
     state_version: int = Field(alias="stateVersion")
     workspace_path: str = Field(alias="workspacePath")
+    scenario_profile: dict[str, Any] = Field(default_factory=dict, alias="scenarioProfile")
     requirement_version: int = Field(default=1, alias="requirementVersion")
     architecture_version: int = Field(default=0, alias="architectureVersion")
     plan_version: int = Field(default=0, alias="planVersion")

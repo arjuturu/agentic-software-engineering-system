@@ -2,13 +2,19 @@ from langgraph.graph import END, START, StateGraph
 
 from app.orchestration.nodes import WorkflowNodes
 from app.orchestration.routing import (
+    route_apply_changes,
     route_architecture_approval,
+    route_design_agent,
+    route_plan_validation,
     route_quality,
     route_release_approval,
     route_replan,
+    route_repository_policy_validation,
     route_requirement,
     route_requirement_approval,
     route_retry,
+    route_task_completion,
+    route_task_validation,
 )
 from app.orchestration.state import EngineeringWorkflowState
 
@@ -37,6 +43,8 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
         "prepare_high_risk_approval": nodes.prepare_high_risk_approval,
         "high_risk_approval_gate": nodes.high_risk_approval_gate,
         "apply_changes": nodes.apply_changes,
+        "task_validation": nodes.task_validation,
+        "complete_task": nodes.complete_task,
         "parallel_start": nodes.parallel_start,
         "validation_agent": nodes.validation_agent,
         "documentation_draft": nodes.documentation_draft,
@@ -63,7 +71,7 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("clarification_gate", "requirement_agent")
     builder.add_edge("prepare_requirement_approval", "requirement_approval_gate")
     builder.add_conditional_edges("requirement_approval_gate", route_requirement_approval)
-    builder.add_edge("design_agent", "design_validation")
+    builder.add_conditional_edges("design_agent", route_design_agent)
     builder.add_conditional_edges(
         "design_validation",
         lambda state: "safe_stop" if state.get("last_error") else "planning_agent",
@@ -71,7 +79,7 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("planning_agent", "plan_validation")
     builder.add_conditional_edges(
         "plan_validation",
-        lambda state: "safe_stop" if state.get("last_error") else "prepare_architecture_approval",
+        route_plan_validation,
     )
     builder.add_edge("prepare_architecture_approval", "architecture_approval_gate")
     builder.add_conditional_edges("architecture_approval_gate", route_architecture_approval)
@@ -79,13 +87,16 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_edge("repository_analysis", "repository_policy_validation")
     builder.add_conditional_edges(
         "repository_policy_validation",
-        lambda state: "safe_stop" if state.get("last_error") else "git_checkpoint",
+        route_repository_policy_validation,
     )
     builder.add_conditional_edges(
         "git_checkpoint",
         lambda state: "safe_stop" if state.get("last_error") else "coding_agent",
     )
-    builder.add_edge("coding_agent", "change_policy_validation")
+    builder.add_conditional_edges(
+        "coding_agent",
+        lambda state: "safe_stop" if state.get("last_error") else "change_policy_validation",
+    )
     builder.add_conditional_edges(
         "change_policy_validation",
         lambda state: (
@@ -106,10 +117,9 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
             "REJECT": "safe_stop",
         }.get(state.get("last_approval_action"), "safe_stop"),
     )
-    builder.add_conditional_edges(
-        "apply_changes",
-        lambda state: "safe_stop" if state.get("last_error") else "parallel_start",
-    )
+    builder.add_conditional_edges("apply_changes", route_apply_changes)
+    builder.add_conditional_edges("task_validation", route_task_validation)
+    builder.add_conditional_edges("complete_task", route_task_completion)
     builder.add_edge("parallel_start", "validation_agent")
     builder.add_edge("parallel_start", "documentation_draft")
     builder.add_edge("validation_agent", "validation_join")
@@ -118,7 +128,10 @@ def build_workflow_graph(nodes: WorkflowNodes, checkpointer):
     builder.add_conditional_edges("failure_classifier", route_quality)
     builder.add_conditional_edges("retry_router", route_retry)
     builder.add_conditional_edges("replan", route_replan)
-    builder.add_edge("documentation_release_agent", "prepare_release_approval")
+    builder.add_conditional_edges(
+        "documentation_release_agent",
+        lambda state: "safe_stop" if state.get("last_error") else "prepare_release_approval",
+    )
     builder.add_edge("prepare_release_approval", "release_approval_gate")
     builder.add_conditional_edges("release_approval_gate", route_release_approval)
     for terminal in (

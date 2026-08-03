@@ -45,3 +45,41 @@ def test_scripted_provider_returns_typed_output(agent, model) -> None:
         agent_name=agent, system_prompt="safe", input_payload=payload, output_model=model
     )
     assert isinstance(result, model)
+
+
+def test_ambiguous_alias_requirement_requires_exact_clarifications() -> None:
+    payload = {
+        "scripted_scenario": "URL_SHORTENER_AMBIGUOUS_ALIASES",
+        "original_requirement": (
+            "Add support for optional custom aliases. "
+            "Aliases should be user-friendly, unique, and handled safely."
+        ),
+        "clarification_answers": [],
+    }
+
+    initial = ScriptedProvider().generate(
+        agent_name="REQUIREMENT_AGENT",
+        system_prompt="safe",
+        input_payload=payload,
+        output_model=RequirementOutput,
+    )
+
+    assert initial.status == "CLARIFICATION_REQUIRED"
+    assert initial.material_ambiguity is True
+    assert [item.question_id for item in initial.clarification_questions] == [
+        f"Q-ALIAS-{number:03d}" for number in range(1, 7)
+    ]
+
+    payload["clarification_answers"] = [
+        {"question_id": item.question_id, "answer": f"Answer for {item.question_id}"}
+        for item in initial.clarification_questions
+    ]
+    revised = ScriptedProvider().generate(
+        agent_name="REQUIREMENT_AGENT",
+        system_prompt="safe",
+        input_payload=payload,
+        output_model=RequirementOutput,
+    )
+    assert revised.status == "READY_FOR_APPROVAL"
+    assert revised.material_ambiguity is False
+    assert revised.clarification_questions == []

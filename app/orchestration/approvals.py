@@ -54,6 +54,7 @@ def validate_clarification_payload(
     payload: Any,
     *,
     workflow_id: str,
+    clarification_id: str,
     state_version: int,
     question_ids: list[str],
 ) -> list[dict[str, str]]:
@@ -61,11 +62,18 @@ def validate_clarification_payload(
         raise ApplicationError(
             "Invalid clarification payload.", "INVALID_CLARIFICATION_RESPONSE", 400
         )
+    if payload.get("type") != "CLARIFICATION_RESPONSE":
+        raise ApplicationError(
+            "Invalid clarification payload.", "INVALID_CLARIFICATION_RESPONSE", 400
+        )
     if (
-        payload.get("type") != "CLARIFICATION_RESPONSE"
-        or payload.get("workflowId") != workflow_id
-        or payload.get("stateVersion") != state_version
+        payload.get("workflowId") != workflow_id
+        or payload.get("clarificationId") != clarification_id
     ):
+        raise ApplicationError(
+            "The clarification was not found.", "CLARIFICATION_NOT_FOUND", 404
+        )
+    if payload.get("stateVersion") != state_version:
         raise ApplicationError("Clarification state does not match.", "INVALID_STATE_VERSION", 409)
     answers = payload.get("answers")
     if not isinstance(answers, list):

@@ -13,13 +13,23 @@ class PlanningStatus(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+class PlanTaskType(StrEnum):
+    SETUP = "SETUP"
+    IMPLEMENTATION = "IMPLEMENTATION"
+    INTEGRATION = "INTEGRATION"
+    MIGRATION = "MIGRATION"
+    TESTING = "TESTING"
+    DOCUMENTATION = "DOCUMENTATION"
+    VALIDATION = "VALIDATION"
+
+
 class PlanTask(BaseModel):
     task_id: str = Field(pattern=r"^TASK-[0-9]{3}$")
     title: str
     description: str
-    task_type: str
+    task_type: PlanTaskType
     dependencies: list[str]
-    parallel_group: str | None = None
+    parallel_group: str | None
     risk_level: RiskLevel
     expected_files: list[str]
     allowed_paths: list[str]
@@ -32,6 +42,14 @@ class PlanTask(BaseModel):
 class PlanningAgentInput(AgentInput):
     approved_requirement: dict[str, Any]
     architecture_design: dict[str, Any]
+    scenario_path_policy: dict[str, Any]
+    pre_satisfied_capabilities: list[str] = Field(default_factory=list)
+    pending_orchestration_gate: str = "ARCHITECTURE_AND_PLAN"
+    post_approval_plan: bool = True
+    generated_task_ids: list[str] = Field(default_factory=list)
+    execution_order: list[str] = Field(default_factory=list)
+    validation_errors: list[dict[str, Any]] = Field(default_factory=list)
+    previous_plan: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanningOutput(BaseModel):

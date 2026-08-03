@@ -6,12 +6,15 @@ _ALLOWED_PROMPTS = {
     "requirement-agent.md",
     "design-agent.md",
     "planning-agent.md",
+    "planning-correction-agent.md",
     "repository-analysis-agent.md",
     "coding-agent.md",
     "coding-fix-agent.md",
     "validation-agent.md",
     "failure-classification-agent.md",
     "documentation-release-agent.md",
+    "scenarios/url-shortener-context.md",
+    "scenarios/url-shortener-validation.md",
 }
 
 
@@ -26,7 +29,6 @@ class PromptLoader:
         if (
             not file_name
             or Path(file_name).is_absolute()
-            or Path(file_name).name != file_name
             or file_name not in _ALLOWED_PROMPTS
             or Path(file_name).suffix.lower() != ".md"
         ):

@@ -18,9 +18,19 @@ from app.tools.path_policy import PathPolicy, PathPolicyError
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_EXTENSIONS = {".py", ".md", ".txt", ".toml", ".ini", ".yaml", ".yml", ".json"}
+_ALLOWED_EXTENSIONS = {
+    ".py",
+    ".md",
+    ".txt",
+    ".toml",
+    ".ini",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".mako",
+}
 _ALLOWED_EXTENSIONLESS = {"README", "LICENSE", "Makefile", "Dockerfile"}
-_ALLOWED_SPECIAL = {".gitignore"}
+_ALLOWED_SPECIAL = {".env.example", ".gitignore"}
 
 
 @dataclass(frozen=True)
@@ -79,11 +89,19 @@ class ControlledEditor:
             raise PathPolicyError("The requested path is not a file.", "NOT_A_FILE")
         if not self._extension_allowed(path):
             raise PathPolicyError("The requested file type is not allowed.", "FILE_TYPE_BLOCKED")
-        if not edit.expected_hash or edit.old_text is None or edit.replacement_text is None:
+        if not edit.expected_hash:
             raise PathPolicyError("Modify guards are incomplete.", "INVALID_MODIFY")
         previous = path.read_bytes()
         if sha256_bytes(previous) != edit.expected_hash.lower():
-            raise PathPolicyError("The expected file hash is stale.", "HASH_MISMATCH")
+            raise PathPolicyError(
+                "The expected file hash is stale.",
+                "HASH_MISMATCH",
+                details={"failure_category": "STALE_EDIT_CONTEXT"},
+            )
+        if edit.content is not None:
+            resulting = edit.content.encode("utf-8")
+            self._check_content_size(resulting)
+            return _PreparedEdit(edit, path, edit.relative_path, previous, resulting)
         try:
             existing_text = previous.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -92,9 +110,17 @@ class ControlledEditor:
             ) from exc
         occurrences = existing_text.count(edit.old_text)
         if occurrences == 0:
-            raise PathPolicyError("The exact old text was not found.", "TEXT_NOT_FOUND")
+            raise PathPolicyError(
+                "The exact old text was not found.",
+                "EDIT_CONFLICT",
+                details={"failure_category": "TEXT_NOT_FOUND"},
+            )
         if occurrences > 1:
-            raise PathPolicyError("The exact old text is ambiguous.", "MULTIPLE_MATCHES")
+            raise PathPolicyError(
+                "The exact old text is ambiguous.",
+                "EDIT_CONFLICT",
+                details={"failure_category": "MULTIPLE_MATCHES"},
+            )
         resulting = existing_text.replace(edit.old_text, edit.replacement_text, 1).encode("utf-8")
         self._check_content_size(resulting)
         return _PreparedEdit(edit, path, edit.relative_path, previous, resulting)
@@ -131,7 +157,14 @@ class ControlledEditor:
             return
         ControlledEditor._atomic_write(path, content)
 
-    def apply_batch(self, workspace: Path, edits: list[StructuredEdit]) -> BatchEditResult:
+    def apply_batch(
+        self,
+        workspace: Path,
+        edits: list[StructuredEdit],
+        *,
+        allowed_paths: list[str] | None = None,
+        policy_context: dict[str, object] | None = None,
+    ) -> BatchEditResult:
         """Validate all edits, then apply them with rollback on any write failure."""
         try:
             safe_workspace = self.path_policy.validate_working_directory(workspace)
@@ -139,6 +172,10 @@ class ControlledEditor:
                 raise PathPolicyError("At least one edit is required.", "EMPTY_BATCH")
             if len({edit.relative_path for edit in edits}) != len(edits):
                 raise PathPolicyError("A batch cannot edit the same path twice.", "DUPLICATE_PATH")
+            if allowed_paths is not None:
+                effective_paths = self.path_policy.normalize_policy_paths(allowed_paths)
+                for edit in edits:
+                    self.path_policy.validate_allowed_path(edit.relative_path, effective_paths)
             prepared = [self._prepare(safe_workspace, edit) for edit in edits]
         except (PathPolicyError, OSError) as exc:
             code = exc.error_code if isinstance(exc, PathPolicyError) else "EDIT_VALIDATION_FAILED"
@@ -149,7 +186,14 @@ class ControlledEditor:
                 status=ToolStatus.BLOCKED,
                 operations=[],
                 rolled_back=False,
-                error=ToolError(code=code, message="The edit batch was blocked."),
+                error=ToolError(
+                    code=code,
+                    message="The edit batch was blocked.",
+                    details={
+                        **(policy_context or {}),
+                        **(exc.details if isinstance(exc, PathPolicyError) else {}),
+                    },
+                ),
             )
 
         results = [

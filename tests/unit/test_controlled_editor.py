@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from app.config import Settings
 from app.tools.controlled_editor import ControlledEditor, file_sha256
@@ -79,7 +80,7 @@ def test_modify_with_hash_and_reject_stale_hash(
 
 
 @pytest.mark.parametrize(
-    ("content", "old_text", "error_code"),
+    ("content", "old_text", "conflict_type"),
     [
         ("alpha\n", "missing", "TEXT_NOT_FOUND"),
         ("same same\n", "same", "MULTIPLE_MATCHES"),
@@ -89,7 +90,7 @@ def test_exact_match_rules(
     editor_setup: tuple[ControlledEditor, Path],
     content: str,
     old_text: str,
-    error_code: str,
+    conflict_type: str,
 ) -> None:
     editor, repository = editor_setup
     path = repository / "app.py"
@@ -100,8 +101,40 @@ def test_exact_match_rules(
 
     assert result.status == ToolStatus.BLOCKED
     assert result.error is not None
-    assert result.error.code == error_code
+    assert result.error.code == "EDIT_CONFLICT"
+    assert result.error.details["failure_category"] == conflict_type
     assert path.read_text(encoding="utf-8") == content
+
+
+def test_full_file_replacement_with_matching_hash_succeeds(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+    path = repository / "app.py"
+    path.write_text("old\n", encoding="utf-8")
+    edit = StructuredEdit(
+        operation=EditOperation.MODIFY,
+        relative_path="app.py",
+        expected_hash=file_sha256(path),
+        content="new\n",
+    )
+
+    result = editor.apply_batch(repository, [edit])
+
+    assert result.status == ToolStatus.SUCCESS
+    assert path.read_text(encoding="utf-8") == "new\n"
+
+
+def test_mixed_modify_modes_are_rejected() -> None:
+    with pytest.raises(ValidationError):
+        StructuredEdit(
+            operation=EditOperation.MODIFY,
+            relative_path="app.py",
+            expected_hash="0" * 64,
+            content="new\n",
+            old_text="old",
+            replacement_text="new",
+        )
 
 
 def test_atomic_rollback_when_later_write_fails(
@@ -146,6 +179,51 @@ def test_restricted_or_disallowed_files_are_blocked(
     assert not (repository / path).exists()
 
 
+def test_exact_env_example_is_allowed_by_policy_and_editor(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+    effective = editor.path_policy.resolve_effective_allowed_paths(
+        [".env.example"], [".env.example"], policy_mode="SCENARIO_RESTRICTED"
+    )
+
+    result = editor.apply_batch(
+        repository,
+        [create_edit(".env.example", "APP_ENV=local\n")],
+        allowed_paths=effective,
+    )
+
+    assert result.status == ToolStatus.SUCCESS
+    assert (repository / ".env.example").read_text(encoding="utf-8") == "APP_ENV=local\n"
+
+
+def test_alembic_mako_template_is_an_allowed_text_file(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+
+    result = editor.apply_batch(
+        repository,
+        [create_edit("alembic/script.py.mako", "${upgrades if upgrades else 'pass'}\n")],
+        allowed_paths=["alembic"],
+    )
+
+    assert result.status == ToolStatus.SUCCESS
+    assert (repository / "alembic/script.py.mako").is_file()
+
+
+@pytest.mark.parametrize("path", [".env.local", ".env.production", ".ENV.EXAMPLE"])
+def test_env_variants_remain_blocked_by_editor(
+    editor_setup: tuple[ControlledEditor, Path], path: str
+) -> None:
+    editor, repository = editor_setup
+
+    result = editor.apply_batch(repository, [create_edit(path, "SECRET=blocked\n")])
+
+    assert result.status == ToolStatus.BLOCKED
+    assert not (repository / path).exists()
+
+
 def test_oversized_content_is_blocked(
     editor_setup: tuple[ControlledEditor, Path],
 ) -> None:
@@ -154,3 +232,27 @@ def test_oversized_content_is_blocked(
     result = editor.apply_batch(repository, [create_edit("large.txt", "x" * 257)])
 
     assert result.status == ToolStatus.BLOCKED
+
+def test_task_allowed_paths_are_enforced_by_editor(
+    editor_setup: tuple[ControlledEditor, Path],
+) -> None:
+    editor, repository = editor_setup
+
+    accepted = editor.apply_batch(
+        repository,
+        [create_edit("architecture_plan.txt", "approved\n")],
+        allowed_paths=["architecture_plan.txt"],
+    )
+    blocked = editor.apply_batch(
+        repository,
+        [create_edit("other.txt", "blocked\n")],
+        allowed_paths=["architecture_plan.txt"],
+        policy_context={"task_id": "TASK-001"},
+    )
+
+    assert accepted.status == ToolStatus.SUCCESS
+    assert blocked.status == ToolStatus.BLOCKED
+    assert blocked.error is not None
+    assert blocked.error.code == "REPOSITORY_POLICY_VIOLATION"
+    assert blocked.error.details["task_id"] == "TASK-001"
+    assert not (repository / "other.txt").exists()

@@ -1,5 +1,4 @@
 from enum import StrEnum
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -11,15 +10,29 @@ class ValidationStatus(StrEnum):
     VALIDATION_FAILED = "VALIDATION_FAILED"
     REPLAN_REQUIRED = "REPLAN_REQUIRED"
     SAFE_STOP_REQUIRED = "SAFE_STOP_REQUIRED"
+    INCOMPLETE_IMPLEMENTATION = "INCOMPLETE_IMPLEMENTATION"
+
+
+class CriterionStatus(StrEnum):
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+    NOT_TESTED = "NOT_TESTED"
 
 
 class ValidationAgentInput(AgentInput):
-    command_results: list[dict[str, Any]]
-    implementation_result: dict[str, Any]
+    command_results: list[dict[str, object]]
+    implementation_result: dict[str, object]
+
+
+class AcceptanceCriterionResult(BaseModel):
+    criterion: str
+    status: CriterionStatus
+    evidence: list[str]
 
 
 class ValidationOutput(BaseModel):
-    acceptance_criteria_results: list[dict[str, Any]]
+    acceptance_criteria_results: list[AcceptanceCriterionResult]
     tests_executed: int
     tests_passed: int
     tests_failed: int

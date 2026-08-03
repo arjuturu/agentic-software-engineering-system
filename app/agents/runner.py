@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from app.agents.base import PromptLoader
 from app.agents.provider import StructuredModelProvider
 from app.repositories.agent_execution_repository import AgentExecutionRepository
 from app.repositories.audit_repository import AuditRepository
+from app.scenarios.url_shortener.context import scenario_prompt_names
 from app.services.artifact_service import ArtifactService
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,12 @@ class AgentRunner:
         self.prompt_loader = prompt_loader
         self.sessions = sessions
         self.artifacts = artifacts
+
+    def _system_prompt(self, prompt_name: str, profile: dict, agent_name: str) -> str:
+        prompts = [self.prompt_loader.load(prompt_name)]
+        for scenario_prompt in scenario_prompt_names(profile.get("profile_id", ""), agent_name):
+            prompts.append(self.prompt_loader.load(scenario_prompt))
+        return "\n\n".join(prompts)
 
     def run(
         self,
@@ -50,7 +58,11 @@ class AgentRunner:
         try:
             output = self.provider.generate(
                 agent_name=agent_name,
-                system_prompt=self.prompt_loader.load(prompt_name),
+                system_prompt=self._system_prompt(
+                    prompt_name,
+                    input_payload.get("scenario_profile", {}),
+                    agent_name,
+                ),
                 input_payload=input_payload,
                 output_model=output_model,
             )
@@ -76,17 +88,38 @@ class AgentRunner:
                 )
             return payload
         except Exception as exc:
-            logger.warning("agent=%s status=FAILED error_type=%s", agent_name, type(exc).__name__)
+            diagnostics = dict(getattr(exc, "details", {}) or {})
+            diagnostics.setdefault("agent_name", agent_name)
+            diagnostics.setdefault("exception_class", type(exc).__name__)
+            diagnostics.setdefault("field_paths", [])
+            diagnostics.setdefault("validation_error_types", [])
+            diagnostics.setdefault("finish_reason", None)
+            diagnostics.setdefault("input_tokens", None)
+            diagnostics.setdefault("output_tokens", None)
+            diagnostics.setdefault("http_request_made", False)
+            error_code = getattr(exc, "error_code", "AGENT_FAILED")
+            logger.warning(
+                "agent=%s status=FAILED error_type=%s request_made=%s",
+                agent_name,
+                diagnostics["exception_class"],
+                diagnostics["http_request_made"],
+            )
             with self.sessions.begin() as session:
                 item = session.get(
                     __import__("app.database.models", fromlist=["AgentExecution"]).AgentExecution,
                     execution_id,
                 )
-                AgentExecutionRepository(session).fail(item, "Agent execution failed safely.")
+                AgentExecutionRepository(session).fail(
+                    item, json.dumps(diagnostics, sort_keys=True)
+                )
                 AuditRepository(session).add(
                     workflow_id,
                     "AGENT_FAILED",
                     stage,
-                    {"agent": agent_name, "error_code": "AGENT_FAILED"},
+                    {
+                        "agent": agent_name,
+                        "error_code": error_code,
+                        "diagnostics": diagnostics,
+                    },
                 )
             raise

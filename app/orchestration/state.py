@@ -6,8 +6,12 @@ class EngineeringWorkflowState(TypedDict, total=False):
     thread_id: str
     correlation_id: str
     scenario_type: str
+    scenario_profile: dict[str, Any]
+    scenario_path_policy: dict[str, Any]
+    execution_mode: str
     scripted_scenario: str
     workspace_name: str
+    source_workspace: str
     repository_path: str
     original_requirement: str
     requirement_analysis: dict[str, Any]
@@ -17,10 +21,20 @@ class EngineeringWorkflowState(TypedDict, total=False):
     architecture_design: dict[str, Any]
     architecture_version: int
     implementation_plan: dict[str, Any]
+    planning_validation_errors: list[dict[str, Any]]
+    planning_correction_context: dict[str, Any]
+    active_task: dict[str, Any]
+    task_validation_result: dict[str, Any]
+    all_required_tasks_completed: bool
+    retry_context: dict[str, Any]
+    repository_context: list[dict[str, Any]]
+    satisfied_task_ids: list[str]
+    edit_policy_contexts: list[dict[str, Any]]
     plan_version: int
     repository_scan: dict[str, Any]
     repository_analysis: dict[str, Any]
     code_change_plan: dict[str, Any]
+    coding_attempt: dict[str, Any]
     implementation_result: dict[str, Any]
     baseline_commit: str
     working_branch: str
@@ -28,6 +42,7 @@ class EngineeringWorkflowState(TypedDict, total=False):
     changed_files: list[str]
     git_diff_artifact: str
     validation_result: dict[str, Any]
+    target_contract_evidence: dict[str, Any]
     documentation_draft: dict[str, Any]
     release_package: dict[str, Any]
     pending_interaction: dict[str, Any]
