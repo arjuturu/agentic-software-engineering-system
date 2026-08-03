@@ -29,6 +29,14 @@ engineering documentation when more depth is needed.
 - The final verification run completed with 259 tests passed and 3 skipped, with Ruff and
   whitespace validation passing.
 
+## Screenshot and video evidence
+
+- [Screenshot evidence for all three scenarios](three-scenario-screenshot-evidence.pdf)
+- [Ambiguous Scenario 3 video demonstration](https://drive.google.com/drive/folders/1OFURyh3AvgU3c7pBqPkgEXVUiKJN1zAz?usp=sharing)
+
+Due to the evaluation time constraints, only the Ambiguous scenario was recorded as a video. The
+PDF contains screenshot evidence for Greenfield, Brownfield, and Ambiguous.
+
 ## Detailed references
 
 - [API and Schema Contracts](api-and-schema-contracts.md)
