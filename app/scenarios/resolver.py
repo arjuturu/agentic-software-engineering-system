@@ -15,10 +15,13 @@ class ScenarioProfileId(StrEnum):
     URL_SHORTENER_AMBIGUOUS_ALIASES = "URL_SHORTENER_AMBIGUOUS_ALIASES"
 
 
-_URL_SHORTENER = re.compile(r"\b(url short(?:en(?:er|ing)?)?|short url|short link)\b", re.I)
+_URL_SHORTENER = re.compile(
+    r"\b(url[ _-]?short(?:en(?:er|ing)?)?|short url|short link)\b",
+    re.I,
+)
 _SUPPORTING_EVIDENCE = (
     re.compile(r"\bredirect\w*\b", re.I),
-    re.compile(r"\bshort[ _-]?code\b", re.I),
+    re.compile(r"\bshort[ _-]?codes?\b", re.I),
     re.compile(r"\balias\w*\b", re.I),
     re.compile(r"\bexpir(?:e|es|ation|y)\w*\b", re.I),
     re.compile(r"\banalytics?\b", re.I),

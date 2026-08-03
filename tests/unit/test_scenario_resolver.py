@@ -12,6 +12,18 @@ def test_resolves_url_shortener_only_with_strong_greenfield_evidence() -> None:
     assert profile["required_capabilities"] == []
 
 
+def test_resolves_required_demo_wording_with_plural_short_codes() -> None:
+    profile = resolve_scenario_profile(
+        "GREENFIELD",
+        (
+            "Build a local URL-shortening API. Generate secure eight-character "
+            "alphanumeric short codes using Python secrets."
+        ),
+    )
+
+    assert profile["profile_id"] == "URL_SHORTENER_GREENFIELD"
+
+
 @pytest.mark.parametrize(
     ("scenario", "requirement"),
     [
