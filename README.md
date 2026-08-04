@@ -10,9 +10,8 @@ human approval gates, controlled repository changes, durable state, and evidence
 ## Quick Links
 
 - [Architecture overview](deliverables/architecture-overview.md)
-- [Assignment traceability](docs/assignment-traceability.md)
 - [Orchestration model](deliverables/orchestration-model.md)
-- [Three-scenario evidence index](docs/evidence-index.md)
+- [Three-scenario screenshot evidence](deliverables/three-scenario-screenshot-evidence.pdf)
 - [Testing and validation](deliverables/testing-and-validation.md)
 - [Risks, trade-offs, and limitations](deliverables/risks-tradeoffs-limitations.md)
 - [Final engineering summary](deliverables/final-engineering-summary.md)
