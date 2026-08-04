@@ -11,8 +11,9 @@
 | Governed Execution Layer | workspace copy, scan, edit, Git, commands, tests, Alembic | app/tools/ |
 | State and Evidence | workflow DB, checkpoint DB, artifacts, audit, reliability | app/database/, app/artifacts/, app/services/reliability_metrics.py |
 
-The complete component view is
-[system-architecture.mmd](../docs/diagrams/system-architecture.mmd).
+The complete component view is shown below:
+
+![System architecture component and workflow diagram](images/system-architecture.jpg)
 
 ## Numbered flow
 
