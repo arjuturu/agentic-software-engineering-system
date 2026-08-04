@@ -9,6 +9,7 @@ human approval gates, controlled repository changes, durable state, and evidence
 
 ## Quick Links
 
+- [Final evidence summary](deliverables/final-evidence-summary.md)
 - [Architecture overview](deliverables/architecture-overview.md)
 - [Orchestration model](deliverables/orchestration-model.md)
 - [Three-scenario screenshot evidence](deliverables/three-scenario-screenshot-evidence.pdf)
@@ -360,7 +361,7 @@ timestamp pair is persisted. No substitute metric is relabeled as MTTR.
 ## Final evidence
 
 Review the architecture, scenario diagrams, key results, and detailed document references in the
-[Final Evidence Summary](deliverables/Final%20Evidence%20Summary.md).
+[Final Evidence Summary](deliverables/final-evidence-summary.md).
 
 Artifacts produced by the agents for the Greenfield, Brownfield, and Ambiguous in interactive mode
 are available in
