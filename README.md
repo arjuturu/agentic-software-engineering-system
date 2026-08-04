@@ -7,6 +7,32 @@ human approval gates, controlled repository changes, durable state, and evidence
 > LLMs propose; deterministic controls decide. Humans approve high-impact transitions and own
 > final quality.
 
+## Quick Links
+
+- [Architecture overview](deliverables/architecture-overview.md)
+- [Assignment traceability](docs/assignment-traceability.md)
+- [Orchestration model](deliverables/orchestration-model.md)
+- [Three-scenario evidence index](docs/evidence-index.md)
+- [Testing and validation](deliverables/testing-and-validation.md)
+- [Risks, trade-offs, and limitations](deliverables/risks-tradeoffs-limitations.md)
+- [Final engineering summary](deliverables/final-engineering-summary.md)
+- [Recorded Ambiguous Scenario 3 video](https://drive.google.com/drive/folders/1OFURyh3AvgU3c7pBqPkgEXVUiKJN1zAz?usp=sharing)
+- [Setup](#prerequisites-and-setup) and [interactive demo](#interactive-scripted-demo)
+
+## Verified Results
+
+| Verification | Result |
+|---|---:|
+| Platform test suite | 259 passed |
+| Ruff | Passed |
+| `git diff --check` | Passed |
+| Greenfield selected workflow | READY |
+| Brownfield selected workflow | READY |
+| Ambiguous selected workflow | READY after clarification |
+
+These results demonstrate the defined assignment scenarios and local prototype controls; they are
+not presented as statistically meaningful production reliability.
+
 ## Core capabilities
 
 - Requirement analysis, normalization, ambiguity detection, and clarification.
@@ -67,6 +93,34 @@ OpenAI mode uses real model calls through the same typed schemas and determinist
 is non-deterministic and experimental: a workflow may clarify, block, retry, replan, roll back,
 safely stop, or fail. OpenAI mode must be selected intentionally and may incur provider charges.
 Never commit credentials.
+
+## Agent Model
+
+The recurring specialist roles are Requirement, Design, Planning, Coding, Validation,
+Documentation, and Release. Brownfield additionally activates Repository Analysis. Each agent has
+a focused responsibility and output schema; agents exchange typed, versioned workflow state and
+artifacts rather than communicating through unrestricted peer-to-peer conversation.
+
+LangGraph and `WorkflowService` are orchestrators, not agents. Workspace Manager, Repository
+Scanner, `ControlledEditor`, Git, Alembic, Pytest, and Ruff are deterministic tools, not agents.
+Deterministic controls own routing, approvals, path enforcement, edits, validation, rollback, and
+safe stop.
+
+Fewer agents would combine unrelated responsibilities, broaden prompts and permissions, and reduce
+retry and audit granularity. More agents would add unnecessary coordination, latency, duplicated
+context, and inconsistent decisions. A separate agent was created only where a task required a
+distinct reasoning responsibility.
+
+## Why LangGraph?
+
+LangGraph was selected because the workflow behaves like a governed state machine rather than an
+unconstrained agent conversation. The project needs persistent workflow state, conditional
+routing, human clarification and approval interrupts, checkpoint resume, bounded retry loops,
+replanning, rollback and safe stop, parallel final validation and documentation, synchronization
+before release, and explicit decision lineage.
+
+A simple sequential chain would not provide the same explicit control over interrupts, loops,
+checkpoints, branch synchronization, and terminal safety.
 
 ## Prerequisites and setup
 
@@ -141,8 +195,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -M
 powershell -ExecutionPolicy Bypass -File scripts/run_phase4_scripted_demo.ps1 -Mode Interactive -Scenario Ambiguous -WorkspacePrefix interactive-demo -SourceWorkspace 'your-greenfield-workspace-name'
 ~~~
 
-SourceWorkspace is the directory name relative to WORKSPACE_ROOT, never an absolute path.
-Filesystem inspection commands may use the full generated workspace path.
+`SourceWorkspace` expects the workspace directory name relative to `WORKSPACE_ROOT`. It must not
+receive an absolute filesystem path. Filesystem operations use the full workspace path; workflow
+API requests use only the workspace directory name as `sourceWorkspace`.
+
+For example, if the returned `workspacePath` is
+`C:\Code\agentic-url-shortner\workspace\interactive-demo\interactive-demo-greenfield-123`, the
+correct `sourceWorkspace` value is `interactive-demo-greenfield-123`.
 
 ## Testing from Swagger UI
 
@@ -157,6 +216,9 @@ Expand POST /api/v1/workflows, select **Try it out**, and submit one of the foll
 Use a unique workspaceName for every run. These Swagger examples use scriptedScenario values and
 therefore require the scripted server mode shown above.
 
+<details>
+<summary>Show Swagger request and response examples</summary>
+
 ### Greenfield request
 
 ~~~json
@@ -168,9 +230,14 @@ therefore require the scripted server mode shown above.
 }
 ~~~
 
-Wait for the Greenfield workflow to reach READY. Copy its workspacePath value into sourceWorkspace
-for the Brownfield and Ambiguous requests. Those scenarios create separate destination workspaces
-from the same Greenfield source.
+Wait for the Greenfield workflow to reach READY. From the returned `workspacePath`, extract only
+the final directory name and pass that name as `sourceWorkspace` for the Brownfield and Ambiguous
+requests. `sourceWorkspace` must be relative to `WORKSPACE_ROOT` and must not be an absolute
+filesystem path. Those scenarios create separate destination workspaces from the same Greenfield
+source.
+
+Filesystem operations use the full workspace path. Workflow API requests use only the workspace
+directory name as `sourceWorkspace`.
 
 ### Brownfield request
 
@@ -180,7 +247,7 @@ from the same Greenfield source.
   "requirement": "Enhance the existing URL-shortener application with click analytics. Add a click_count column with a default value of 0. Increment click_count on every successful redirect. Add GET /api/v1/urls/{short_code}/stats. Create a new Alembic migration. Preserve existing creation, validation, collision, and redirect behavior. Add regression tests. Do not add aliases, expiration, authentication, caching, messaging, workers, UI, or cloud deployment.",
   "workspaceName": "swagger-brownfield",
   "scriptedScenario": "URL_SHORTENER_BROWNFIELD_ANALYTICS",
-  "sourceWorkspace": "replace-with-greenfield-workspacePath"
+  "sourceWorkspace": "replace-with-greenfield-workspace-name"
 }
 ~~~
 
@@ -192,7 +259,7 @@ from the same Greenfield source.
   "requirement": "Add support for optional custom aliases. Aliases should be user-friendly, unique, and handled safely.",
   "workspaceName": "swagger-ambiguous",
   "scriptedScenario": "URL_SHORTENER_AMBIGUOUS_ALIASES",
-  "sourceWorkspace": "replace-with-greenfield-workspacePath"
+  "sourceWorkspace": "replace-with-greenfield-workspace-name"
 }
 ~~~
 
@@ -256,6 +323,8 @@ workflow ID, clarification ID, state version, and exact question IDs from the la
 Include one answer for every returned question. After each submission, use the newest response
 values; stale state versions are rejected.
 
+</details>
+
 ## Verification
 
 ~~~powershell
@@ -274,6 +343,21 @@ python scripts/generate_reliability_report.py
 python scripts/generate_reliability_report.py --scenario-type GREENFIELD --output-json evidence/08-reliability/reliability-metrics.json --output-markdown docs/reliability-metrics.md
 ~~~
 
+### Reliability Interpretation
+
+- Historical Phase 5 dataset: 18 workflows, a 27.78% aggregate historical READY rate, and mixed
+  development, retry, rollback, safe-stop, and live-model evidence.
+- Phase 6 interactive dataset: 5 persisted workflows, 4 READY, 1
+  `WAITING_FOR_CLARIFICATION`, and an 80% aggregate READY rate.
+
+The selected Greenfield, Brownfield, and completed Ambiguous workflows reached READY. The waiting
+Ambiguous record demonstrates the clarification boundary and is not a failed workflow; the dataset
+also contains an additional successful Brownfield run. Neither dataset is statistically meaningful
+production reliability, and the interactive dataset is not a clean three-workflow benchmark.
+
+MTTR is not currently measurable because no canonical incident-start and resolution-completion
+timestamp pair is persisted. No substitute metric is relabeled as MTTR.
+
 ## Final evidence
 
 Review the architecture, scenario diagrams, key results, and detailed document references in the
@@ -291,3 +375,33 @@ Each workflow's evidence is organized in its corresponding WF-... directory.
 
 Due to the evaluation time constraints, only the Ambiguous scenario was recorded as a video. The
 PDF contains screenshot evidence for Greenfield, Brownfield, and Ambiguous.
+
+## Current Boundaries and Future Enhancements
+
+The current implementation is a local, single-node prototype intended to demonstrate controlled
+autonomy, SDLC orchestration, deterministic validation, and safe change management. It is not
+presented as a complete production deployment.
+
+### Governed Git and PR integration
+
+Remote Git and pull-request automation were intentionally deferred until local governed editing,
+validation, rollback, and audit controls were proven. The current system already produces the
+diffs, checkpoints, test evidence, and release summary required for a future governed PR workflow.
+
+A future GitHub/GitLab adapter or Git MCP would create short-lived branches, push only after
+validation, open pull requests, and attach test, architecture, audit, and release evidence. It
+would enforce a repository allowlist, least-privilege credentials, branch protections, CI status
+checks, and human approval before merge, with no default auto-merge.
+
+### Additional future enhancements
+
+- Container-isolated execution.
+- PostgreSQL-backed state and distributed workspace leases, plus worker queues.
+- RBAC, policy-as-code, secrets management, OpenTelemetry, and centralized audit retention.
+- SAST, dependency scanning, and SBOM generation.
+- Durable provider identity, exact scenario identity, and incident timestamps required for MTTR.
+- AST- or LSP-aware editing.
+- Multi-language and multi-repository support.
+
+See [risks, trade-offs, and limitations](deliverables/risks-tradeoffs-limitations.md) for the
+detailed production boundaries and roadmap.
